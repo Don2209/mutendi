@@ -1,0 +1,298 @@
+/* ==========================================================================
+   MUS — reusable admin sidebar
+   Palette, type and surface treatment mirror the landing page
+   (resources/css/style.css). Loaded by mus/components/sidebar.php.
+   ========================================================================== */
+
+.mus-sidebar {
+  --brand-50:  #F6F0FB;
+  --brand-100: #EADCF6;
+  --brand-200: #D3BAEA;
+  --brand-300: #B48FDA;
+  --brand-500: #662F97;
+  --brand-600: #56287F;
+
+  --ink:       #14101A;
+  --ink-soft:  #6C6478;
+  --ink-faint: #9A93A6;
+  --bg-tint:   #F4EDFA;
+  --surface:   #FFFFFF;
+  --line:      rgba(102, 47, 151, .12);
+  --shadow:    0 1px 2px rgba(30, 14, 45, .06), 0 12px 28px -10px rgba(30, 14, 45, .16);
+
+  --w: 258px;
+  --rail: 74px;
+
+  position: fixed;
+  top: var(--mus-top, 0px);
+  left: 0;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  width: var(--w);
+  height: calc(100vh - var(--mus-top, 0px));
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  transition: width .28s cubic-bezier(.22, 1, .36, 1), transform .28s cubic-bezier(.22, 1, .36, 1);
+}
+.mus-sidebar *, .mus-sidebar *::before, .mus-sidebar *::after { box-sizing: border-box; }
+.mus-sidebar a  { text-decoration: none; color: inherit; }
+.mus-sidebar ul { margin: 0; padding: 0; list-style: none; }
+
+/* -------------------------------------------------------------- header -- */
+
+.mus-sidebar__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 18px 12px 14px 18px;
+}
+.mus-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mus-brand__logo { width: 34px; height: 34px; object-fit: contain; flex: none; }
+.mus-brand__text { display: flex; flex-direction: column; min-width: 0; }
+.mus-brand__text strong { font-size: 1.02rem; font-weight: 800; letter-spacing: -.03em; }
+.mus-brand__text small  { font-size: .68rem; color: var(--ink-faint); letter-spacing: .04em; text-transform: uppercase; }
+
+.mus-collapse {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: .78rem;
+  cursor: pointer;
+  transition: background-color .18s ease, color .18s ease;
+}
+.mus-collapse:hover { background: var(--bg-tint); color: var(--brand-500); }
+
+/* ----------------------------------------------------------- nav groups -- */
+
+.mus-nav { flex: 1; overflow-y: auto; padding: 4px 12px 10px; scrollbar-width: thin; }
+.mus-nav::-webkit-scrollbar { width: 5px; }
+.mus-nav::-webkit-scrollbar-thumb { background: var(--brand-100); border-radius: 3px; }
+
+.mus-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 10px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mus-group__head:hover { color: var(--brand-500); }
+.mus-group__caret { font-size: .62rem; transition: transform .25s ease; }
+.mus-group:not(.is-open) .mus-group__caret { transform: rotate(-90deg); }
+.mus-group:not(.is-open) .mus-group__list { display: none; }
+
+/* ------------------------------------------------------------- nav item -- */
+
+.mus-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  color: var(--ink-soft);
+  font-size: .855rem;
+  font-weight: 500;
+  line-height: 1.3;
+  transition: background-color .18s ease, color .18s ease;
+}
+.mus-item:hover { background: var(--bg-tint); color: var(--brand-500); }
+.mus-item__icon { flex: none; width: 17px; font-size: .82rem; text-align: center; opacity: .8; }
+.mus-item__label { flex: 1; min-width: 0; }
+
+.mus-item.is-active {
+  background: var(--brand-50);
+  color: var(--brand-600);
+  font-weight: 600;
+}
+.mus-item.is-active .mus-item__icon { opacity: 1; }
+.mus-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand-500);
+}
+
+.mus-item__badge {
+  flex: none;
+  min-width: 19px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--brand-100);
+  color: var(--brand-600);
+  font-size: .65rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.mus-item--danger:hover { background: #FDECEC; color: #B3261E; }
+
+/* -------------------------------------------------------------- footer -- */
+
+.mus-sidebar__foot {
+  flex: none;
+  padding: 10px 12px 14px;
+  border-top: 1px solid var(--line);
+}
+.mus-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--bg-tint);
+}
+.mus-user__avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand-500), var(--brand-300));
+  color: #fff;
+  font-size: .75rem;
+}
+.mus-user__text { display: flex; flex-direction: column; min-width: 0; }
+.mus-user__text strong { font-size: .8rem; font-weight: 700; }
+.mus-user__text small  { font-size: .68rem; color: var(--ink-faint); }
+
+/* --------------------------------------------------- collapsed to a rail -- */
+
+.mus-sidebar.is-rail { width: var(--rail); }
+.mus-sidebar.is-rail .mus-brand__text,
+.mus-sidebar.is-rail .mus-item__label,
+.mus-sidebar.is-rail .mus-user__text,
+.mus-sidebar.is-rail .mus-group__head span,
+.mus-sidebar.is-rail .mus-group__caret { display: none; }
+.mus-sidebar.is-rail .mus-sidebar__head { justify-content: center; padding: 18px 10px 14px; }
+.mus-sidebar.is-rail .mus-collapse { margin-left: 0; }
+.mus-sidebar.is-rail .mus-collapse i { transform: rotate(180deg); }
+.mus-sidebar.is-rail .mus-item,
+.mus-sidebar.is-rail .mus-user { justify-content: center; padding-left: 0; padding-right: 0; }
+.mus-sidebar.is-rail .mus-group__head { justify-content: center; padding: 12px 0 6px; }
+.mus-sidebar.is-rail .mus-group__head::after {
+  content: '';
+  width: 18px;
+  height: 1px;
+  background: var(--line);
+}
+.mus-sidebar.is-rail .mus-group__list { display: block; }
+.mus-sidebar.is-rail .mus-item__badge {
+  position: absolute;
+  top: 3px;
+  right: 12px;
+  min-width: 15px;
+  padding: 1px 4px;
+  font-size: .58rem;
+}
+.mus-sidebar.is-rail .mus-item[data-label]:hover::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-size: .74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+
+/* ----------------------------------------------------------- off-canvas -- */
+
+.mus-toggle {
+  position: fixed;
+  top: 15px;
+  left: 14px;
+  z-index: 60;
+  display: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink, #14101A);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background-color .18s ease, color .18s ease;
+}
+.mus-toggle:hover { background: #F4EDFA; color: #662F97; }
+
+.mus-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  border: 0;
+  padding: 0;
+  background: rgba(20, 16, 26, .38);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+@media (max-width: 1100px) {
+  .mus-toggle { display: grid; }
+  .mus-sidebar { transform: translateX(-100%); box-shadow: var(--shadow); }
+  .mus-sidebar.is-open { transform: none; }
+  .mus-sidebar.is-rail { width: var(--w); }
+  .mus-sidebar.is-rail .mus-brand__text,
+  .mus-sidebar.is-rail .mus-item__label,
+  .mus-sidebar.is-rail .mus-user__text,
+  .mus-sidebar.is-rail .mus-group__head span,
+  .mus-sidebar.is-rail .mus-group__caret { display: revert; }
+}
+
+/* Narrow phones — the drawer should not eat the whole screen. */
+@media (max-width: 420px) {
+  .mus-sidebar { --w: min(86vw, 268px); }
+  .mus-sidebar__head { padding: 16px 10px 12px 16px; }
+  .mus-brand__logo { width: 30px; height: 30px; }
+  .mus-item { padding: 10px 11px; font-size: .87rem; }
+  .mus-group__head { padding: 13px 10px 5px; }
+  .mus-toggle { top: 13px; left: 10px; width: 42px; height: 42px; }
+}
+
+/* Short viewports (landscape phones) — keep the nav scrollable and give the
+   footer block less of the limited height. */
+@media (max-height: 560px) {
+  .mus-sidebar__head { padding-top: 12px; padding-bottom: 10px; }
+  .mus-user { display: none; }
+  .mus-sidebar__foot { padding: 6px 12px 8px; }
+  .mus-group__head { padding-top: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mus-sidebar, .mus-group__caret, .mus-item { transition: none; }
+}

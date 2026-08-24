@@ -177,7 +177,7 @@ $musPathsOnly = false;
         <i class="fa-solid fa-chevron-down"></i>
       </button>
       <div class="avatar-menu__list">
-        <a href="#"><i class="fa-regular fa-user"></i> Profile</a>
+        <a href="<?= $base_url ?>admin/profile.php"><i class="fa-regular fa-user"></i> Profile</a>
         <a href="#"><i class="fa-solid fa-gear"></i> Settings</a>
         <a href="#" class="is-danger"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
       </div>
@@ -588,11 +588,12 @@ $musPathsOnly = false;
     };
     typeInputs.forEach(function (i) { i.addEventListener('change', applyType); });
 
-    // A button may ask for a type up front, e.g. "Start New Trial".
+    // Every opener sets the type: "Start New Trial" presets to trial, any
+    // other Add button resets to paying so the choice never carries over.
     document.addEventListener('click', function (e) {
-      var opener = e.target.closest('[data-preset]');
+      var opener = e.target.closest('[data-modal="modalAdd"]');
       if (!opener) { return; }
-      var radio = document.querySelector('[data-acctype="' + opener.dataset.preset + '"]');
+      var radio = document.querySelector('[data-acctype="' + (opener.dataset.preset || 'paying') + '"]');
       if (radio) { radio.checked = true; }
       applyType();
     });

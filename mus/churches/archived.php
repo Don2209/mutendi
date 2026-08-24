@@ -112,7 +112,7 @@ $sidebarUser   = ['name' => 'Super Admin', 'role' => 'System Owner'];
       </button>
       <div class="avatar-menu__list">
         <a href="<?= $base_url ?>admin/profile.php"><i class="fa-regular fa-user"></i> Profile</a>
-        <a href="<?= $base_url ?>system/general.php"><i class="fa-solid fa-gear"></i> Settings</a>
+        <a href="#"><i class="fa-solid fa-gear"></i> Settings</a>
         <a href="<?= $base_url ?>logout.php" class="is-danger"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
       </div>
     </div>

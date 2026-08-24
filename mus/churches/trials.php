@@ -112,7 +112,7 @@ $sidebarUser   = ['name' => 'Super Admin', 'role' => 'System Owner'];
       <i class="fa-regular fa-bell"></i>
       <span class="bell-badge">5</span>
     </button>
-    <a class="btn btn--primary" href="<?= $base_url ?>churches/all.php"><i class="fa-solid fa-plus"></i> <span>Add Church</span></a>
+    <a class="btn btn--primary" href="#" data-modal="modalAdd"><i class="fa-solid fa-plus"></i> <span>Add Church</span></a>
 
     <div class="avatar-menu">
       <button class="avatar-menu__trigger" type="button">
@@ -121,7 +121,7 @@ $sidebarUser   = ['name' => 'Super Admin', 'role' => 'System Owner'];
       </button>
       <div class="avatar-menu__list">
         <a href="<?= $base_url ?>admin/profile.php"><i class="fa-regular fa-user"></i> Profile</a>
-        <a href="<?= $base_url ?>system/general.php"><i class="fa-solid fa-gear"></i> Settings</a>
+        <a href="#"><i class="fa-solid fa-gear"></i> Settings</a>
         <a href="<?= $base_url ?>logout.php" class="is-danger"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
       </div>
     </div>
@@ -658,11 +658,12 @@ $sidebarUser   = ['name' => 'Super Admin', 'role' => 'System Owner'];
     };
     typeInputs.forEach(function (i) { i.addEventListener('change', applyType); });
 
-    // A button may ask for a type up front, e.g. "Start New Trial".
+    // Every opener sets the type: "Start New Trial" presets to trial, any
+    // other Add button resets to paying so the choice never carries over.
     document.addEventListener('click', function (e) {
-      var opener = e.target.closest('[data-preset]');
+      var opener = e.target.closest('[data-modal="modalAdd"]');
       if (!opener) { return; }
-      var radio = document.querySelector('[data-acctype="' + opener.dataset.preset + '"]');
+      var radio = document.querySelector('[data-acctype="' + (opener.dataset.preset || 'paying') + '"]');
       if (radio) { radio.checked = true; }
       applyType();
     });

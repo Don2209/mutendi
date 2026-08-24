@@ -146,7 +146,7 @@ $pager = ['from' => 1, 'to' => $totalPending, 'total' => $totalPending, 'pages' 
       </button>
       <div class="avatar-menu__list">
         <a href="<?= $base_url ?>admin/profile.php"><i class="fa-regular fa-user"></i> Profile</a>
-        <a href="<?= $base_url ?>system/general.php"><i class="fa-solid fa-gear"></i> Settings</a>
+        <a href="#"><i class="fa-solid fa-gear"></i> Settings</a>
         <a href="<?= $base_url ?>logout.php" class="is-danger"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
       </div>
     </div>
@@ -730,11 +730,12 @@ $pager = ['from' => 1, 'to' => $totalPending, 'total' => $totalPending, 'pages' 
     };
     typeInputs.forEach(function (i) { i.addEventListener('change', applyType); });
 
-    // A button may ask for a type up front, e.g. "Start New Trial".
+    // Every opener sets the type: "Start New Trial" presets to trial, any
+    // other Add button resets to paying so the choice never carries over.
     document.addEventListener('click', function (e) {
-      var opener = e.target.closest('[data-preset]');
+      var opener = e.target.closest('[data-modal="modalAdd"]');
       if (!opener) { return; }
-      var radio = document.querySelector('[data-acctype="' + opener.dataset.preset + '"]');
+      var radio = document.querySelector('[data-acctype="' + (opener.dataset.preset || 'paying') + '"]');
       if (radio) { radio.checked = true; }
       applyType();
     });

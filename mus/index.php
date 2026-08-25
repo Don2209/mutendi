@@ -81,7 +81,7 @@ $dormant = [
     ['church' => 'Glory Ministries Gweru',     'last' => '62 days ago', 'members' => '620',   'expiry' => '30 Jul 2026'],
     ['church' => 'Faith World Ministries',     'last' => '48 days ago', 'members' => '1,050', 'expiry' => '15 Sep 2026'],
     ['church' => 'Christ Embassy Chitungwiza', 'last' => '41 days ago', 'members' => '480',   'expiry' => '03 Oct 2026'],
-    ['church' => 'AFM Kwekwe Assembly',        'last' => '37 days ago', 'members' => '735',   'expiry' => '21 Nov 2026'],
+    ['church' => 'AFM Kwekwe Assembly',         'last' => '37 days ago', 'members' => '735',   'expiry' => '21 Nov 2026'],
     ['church' => 'Grace Ministries',           'last' => '34 days ago', 'members' => '860',   'expiry' => '12 Aug 2026'],
 ];
 

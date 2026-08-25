@@ -2,14 +2,18 @@
 /**
  * Mutendi CMS — Super Admin login (static UI mockup).
  *
- * Standalone by design: no sidebar, no top bar, no dashboard includes, and its
+ * Standalone by design: no sidebar, no top bar, no dashboard includes and its
  * own stylesheet. Nothing here authenticates — the form does not submit and no
  * credential, token or session is created. LATER this posts to the auth
  * controller, which issues the session and the two-factor challenge.
+ *
+ * Light mode only. There is no theme toggle and no dark variant anywhere on
+ * this page, by instruction.
  */
 
 /* Self-locating base URL, so the page works from any folder depth without
-   needing the dashboard's includes. */
+   needing the dashboard's includes. Mirrors how MUS_URL / MUS_ROOT_URL are
+   derived in mus/components/sidebar.php. */
 $docRoot = str_replace('\\', '/', rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/'));
 $musDir  = str_replace('\\', '/', __DIR__);
 $musUrl  = ($docRoot !== '' && strpos($musDir, $docRoot) === 0)
@@ -18,15 +22,22 @@ $musUrl  = ($docRoot !== '' && strpos($musDir, $docRoot) === 0)
 $musUrl  = rtrim($musUrl, '/') ?: '/mus';
 $rootUrl = rtrim(dirname($musUrl), '/');
 
+/* The real logo already in the project — the same file mus/components/sidebar.php
+   loads (resources/img/logo.png). It is 204x150 RGBA with a transparent
+   ground, so it is never given a square box or a plate to sit on: max-width
+   plus height:auto plus object-fit:contain keep it undistorted, and nothing
+   is painted behind it. */
+$logoUrl = $rootUrl . '/resources/img/logo.png';
+
 /* Figures shown on the left panel.
    LATER:
      SELECT COUNT(*) FROM churches WHERE status = 'active';
      SELECT COUNT(*) FROM members;
    plus the uptime figure from the monitoring service. */
 $stats = [
-    ['fa-church',       '47',     'Churches'],
-    ['fa-users',        '12,480', 'Members'],
-    ['fa-signal',       '99.9%',  'Uptime'],
+    ['fa-church', '47',     'Churches'],
+    ['fa-users',  '12,480', 'Members'],
+    ['fa-signal', '99.9%',  'Uptime'],
 ];
 
 /* LATER: read the deployed build from the release manifest. */
@@ -38,12 +49,15 @@ $version = 'v1.0.4';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#0a0e1a">
+<!-- Light only: this stops the browser auto-inverting anything when the OS
+     is set to dark. There is no dark stylesheet to fall back to. -->
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f5f6ff">
 <title>Sign In — Mutendi CMS</title>
-<link rel="icon" type="image/png" href="<?= $rootUrl ?>/resources/img/logo.png">
+<link rel="icon" type="image/png" href="<?= $logoUrl ?>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link rel="stylesheet" href="<?= $musUrl ?>/assets/css/login.css">
 </head>
@@ -53,30 +67,27 @@ $version = 'v1.0.4';
 
   <!-- ══════════════════════ LEFT — THE ATMOSPHERE ══════════════════════ -->
   <section class="stage">
-    <canvas class="stage__canvas" id="constellation" aria-hidden="true"></canvas>
-    <div class="stage__topo" aria-hidden="true"></div>
     <div class="stage__grid" aria-hidden="true"></div>
+    <canvas class="stage__canvas" id="constellation" aria-hidden="true"></canvas>
     <div class="stage__glow" aria-hidden="true"></div>
 
     <div class="stage__body">
-      <div class="brandrow rise rise-1">
-        <span class="badge">
-          <span class="badge__plate" aria-hidden="true"></span>
-          <span class="badge__ring" aria-hidden="true"></span>
-          <i class="fa-solid fa-church badge__mark" aria-hidden="true"></i>
+
+      <div class="lockup">
+        <span class="mark rise rise-1">
+          <img class="mark__logo" src="<?= $logoUrl ?>" alt="Mutendi CMS"
+               width="204" height="150">
         </span>
-        <div>
-          <h1 class="wordmark">MUTENDI</h1>
-          <p class="subword">Church Management System</p>
-        </div>
+        <h1 class="wordmark rise rise-2">MUTENDI</h1>
+        <p class="subword rise rise-2">Church Management System</p>
       </div>
 
-      <p class="tagline rise rise-2">
+      <p class="tagline rise rise-3">
         Managing <strong>47 churches</strong>. <strong>12,480 members</strong>.
         One platform.
       </p>
 
-      <div class="rule rise rise-3" aria-hidden="true"></div>
+      <div class="hairline rise rise-4" aria-hidden="true"></div>
 
       <ul class="chips rise rise-4">
         <?php foreach ($stats as [$icon, $value, $label]): ?>
@@ -100,13 +111,6 @@ $version = 'v1.0.4';
   <!-- ══════════════════════ RIGHT — THE FORM ══════════════════════ -->
   <section class="panel">
 
-    <div class="panel__top rise rise-1">
-      <button class="themebtn" type="button" id="themeBtn"
-              title="Switch theme" aria-label="Switch theme">
-        <i class="fa-regular fa-moon" aria-hidden="true"></i>
-      </button>
-    </div>
-
     <div class="panel__mid">
       <div class="form" id="form">
         <div class="steps" id="steps">
@@ -115,9 +119,9 @@ $version = 'v1.0.4';
             <!-- ─────────── STEP 1 — CREDENTIALS ─────────── -->
             <div class="step" id="step1" role="group" aria-label="Sign in">
 
-              <p class="overline rise rise-2">Super Admin</p>
+              <p class="overline rise rise-1">Super Admin</p>
               <h2 class="title rise rise-2">Welcome back</h2>
-              <p class="sub rise rise-3">Sign in to continue to your dashboard</p>
+              <p class="sub rise rise-2">Sign in to continue to your dashboard</p>
 
               <!-- Hidden until the server refuses a sign-in. -->
               <div class="alert alert--error" id="alertError" role="alert" hidden>
@@ -133,14 +137,14 @@ $version = 'v1.0.4';
                   Try again in 15 minutes, or reset your password.</span>
               </div>
 
-              <div class="field rise rise-4">
+              <div class="field rise rise-3">
                 <input class="field__input" id="email" type="email" placeholder=" "
                        autocomplete="username" spellcheck="false">
                 <i class="fa-regular fa-envelope field__icon" aria-hidden="true"></i>
                 <label class="field__label" for="email">Email address</label>
               </div>
 
-              <div class="field rise rise-4">
+              <div class="field rise rise-3">
                 <input class="field__input" id="password" type="password" placeholder=" "
                        autocomplete="current-password">
                 <i class="fa-solid fa-lock field__icon" aria-hidden="true"></i>
@@ -157,24 +161,24 @@ $version = 'v1.0.4';
                 Caps Lock is on
               </p>
 
-              <div class="optrow rise rise-5">
+              <div class="optrow rise rise-4">
                 <label class="check">
                   <input type="checkbox" id="remember" checked>
                   <span class="check__box" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
-                  <span>Remember me for 30 days</span>
+                  <span>Remember me<span class="check__more"> for 30 days</span></span>
                 </label>
                 <a class="linky" href="#">Forgot password?</a>
               </div>
 
-              <button class="btn rise rise-6" type="button" id="signIn">
+              <button class="btn rise rise-5" type="button" id="signIn">
                 <span class="btn__label">Sign In <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>
                 <span class="btn__loading"><span class="spinner" aria-hidden="true"></span> Authenticating&hellip;</span>
                 <span class="btn__done"><i class="fa-solid fa-check" aria-hidden="true"></i> Verified</span>
               </button>
 
-              <p class="seam rise rise-6" aria-hidden="true">SECURED</p>
+              <p class="seam rise rise-5" aria-hidden="true"><span>SECURED</span></p>
 
-              <p class="trust rise rise-6">
+              <p class="trust rise rise-5">
                 <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
                 Protected by two-factor authentication
               </p>
@@ -221,7 +225,7 @@ $version = 'v1.0.4';
       </div>
     </div>
 
-    <div class="panel__foot rise rise-6">
+    <div class="panel__foot">
       <span>&copy; <?= date('Y') ?> Mutendi CMS</span>
       <span class="panel__links">
         <a href="#">Privacy</a><span aria-hidden="true">&middot;</span>
@@ -250,7 +254,9 @@ $version = 'v1.0.4';
     var ctx = canvas.getContext('2d'),
         dots = [], w = 0, h = 0, dpr = 1, frame = null;
 
-    var LINK = 128;
+    var LINK = 132,
+        DOT  = 'rgba(99, 102, 241, .38)',
+        LINE = 'rgba(129, 140, 248, .28)';
 
     function build() {
       var rect = canvas.getBoundingClientRect();
@@ -261,17 +267,17 @@ $version = 'v1.0.4';
       canvas.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      var target = Math.round((w * h) / 15000);
-      var count  = Math.max(14, Math.min(w < 700 ? 26 : 62, target));
+      var target = Math.round((w * h) / 16000);
+      var count  = Math.max(12, Math.min(w < 700 ? 22 : 58, target));
 
       dots = [];
       for (var i = 0; i < count; i++) {
         dots.push({
           x:  Math.random() * w,
           y:  Math.random() * h,
-          vx: (Math.random() - .5) * .16,
-          vy: (Math.random() - .5) * .16,
-          r:  Math.random() * 1.5 + .7
+          vx: (Math.random() - .5) * .14,
+          vy: (Math.random() - .5) * .14,
+          r:  Math.random() * 1.4 + .7
         });
       }
     }
@@ -289,8 +295,8 @@ $version = 'v1.0.4';
               d  = Math.sqrt(dx * dx + dy * dy);
 
           if (d < LINK) {
-            ctx.globalAlpha = (1 - d / LINK) * 0.22;
-            ctx.strokeStyle = '#8b5cf6';
+            ctx.globalAlpha = (1 - d / LINK) * 0.55;
+            ctx.strokeStyle = LINE;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
@@ -299,8 +305,8 @@ $version = 'v1.0.4';
           }
         }
 
-        ctx.globalAlpha = .75;
-        ctx.fillStyle = '#a5b4fc';
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = DOT;
         ctx.beginPath();
         ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
         ctx.fill();
@@ -414,6 +420,7 @@ $version = 'v1.0.4';
   }
 
   /* ================================================ button states ==== */
+  /* label -> spinner -> green tick, then whatever comes next. */
   function run(btn, done) {
     btn.classList.add('is-loading');
     setTimeout(function () {
@@ -443,13 +450,19 @@ $version = 'v1.0.4';
     setTimeout(function () { document.getElementById('email').focus(); }, still ? 0 : 420);
   });
 
-  /* The form flinches when a sign-in is refused. Kept here so the error
-     state can be demonstrated from the console without a server. */
-  window.mutendiShake = function () {
-    if (still) { return; }
-    form.classList.remove('is-shaking');
-    void form.offsetWidth;
-    form.classList.add('is-shaking');
+  /* The refused-sign-in states ship hidden. This shows them from the console
+     without a server behind the page: mutendiState('error' | 'locked' | 'none'). */
+  window.mutendiState = function (which) {
+    var err = document.getElementById('alertError'),
+        lock = document.getElementById('alertLocked');
+    err.hidden  = which !== 'error';
+    lock.hidden = which !== 'locked';
+    if (which === 'error' && !still) {
+      form.classList.remove('is-shaking');
+      void form.offsetWidth;
+      form.classList.add('is-shaking');
+    }
+    fit();
   };
 
   /* ==================================================== code boxes ==== */
@@ -514,14 +527,6 @@ $version = 'v1.0.4';
   function stopCountdown() {
     if (ticker) { clearInterval(ticker); ticker = null; }
   }
-
-  /* ======================================================= theme ==== */
-  /* Visual only — the page is dark either way. */
-  document.getElementById('themeBtn').addEventListener('click', function () {
-    var icon = this.querySelector('i');
-    var sun  = icon.classList.contains('fa-sun');
-    icon.className = sun ? 'fa-regular fa-moon' : 'fa-regular fa-sun';
-  });
 
 })();
 </script>

@@ -11,7 +11,9 @@ require __DIR__ . '/../includes/config.php';
 
 /* ══════════════ DEMO ONLY — REMOVE BEFORE PRODUCTION ══════════════ */
 $demo_role       = isset($_GET['role'], $demo_roles[$_GET['role']]) ? $_GET['role'] : 'church_admin';
-$user            = $demo_roles[$demo_role]['user'];
+/* array_merge, not assignment: the scope keys from config must survive
+   so a branch-scope user stays scoped on this page. */
+$user            = array_merge($user, $demo_roles[$demo_role]['user']);
 $permissions     = $demo_roles[$demo_role]['perms'];
 $enabled_modules = $demo_roles[$demo_role]['modules'];
 /* ═══════════════════════════ END DEMO ═══════════════════════════ */
@@ -23,6 +25,65 @@ if (!function_exists('mu_can')) {
 
 /* Without permission to add, the form is not rendered at all. */
 $may_add = mu_can('members.add');
+
+/* ─────────────────────────── BRANCH AWARENESS ───────────────────────────
+   Resolves which branch is in view (the top bar's switcher sets ?branch=) and
+   scopes this page's data to it. Every addition below is inert for a single
+   church: is_multi_branch() is false, so no column, chip, filter or toggle is
+   rendered and the page behaves exactly as it did before.
+   ──────────────────────────────────────────────────────────────────────── */
+require_once __DIR__ . '/../components/branch-switcher.php';
+
+$branch_aware   = is_multi_branch();
+$viewing_all    = !$branch_aware || $current_branch === 'all' || $current_branch === null;
+$show_branch    = $branch_aware && $viewing_all;      /* column, chip and filter */
+$branch_options = $branch_aware ? get_visible_branches() : [];
+
+if (!function_exists('mu_branch_for')) {
+    /**
+     * Which branch a demo record belongs to. Deterministic from the record's
+     * own key, so a person or a group never hops between branches on reload.
+     * LATER: the row carries its own branch_id and this helper disappears.
+     */
+    function mu_branch_for(string $key): ?array {
+        static $pool = null;
+        if ($pool === null) { $pool = get_visible_branches(); }
+        if (!$pool) { return null; }
+        return $pool[crc32($key) % count($pool)];
+    }
+
+    /** One colour per group, so branches in the same group read together. */
+    function mu_branch_tone(array $b): string {
+        static $tones = [];
+        static $pool = ['var(--info)', 'var(--brand-500)', '#0F766E', 'var(--warn)', '#6D28D9'];
+        $g = $b['group_name'] ?? '';
+        if (!isset($tones[$g])) { $tones[$g] = $pool[count($tones) % count($pool)]; }
+        return $tones[$g];
+    }
+
+    /** The small coloured chip naming a record's branch. */
+    function mu_branch_chip(?array $b): string {
+        if (!$b) { return ''; }
+        return '<span class="bchip" title="' . htmlspecialchars($b['name']) . '">'
+             . '<span class="bchip__dot" style="background:' . mu_branch_tone($b) . '" aria-hidden="true"></span>'
+             . htmlspecialchars($b['name']) . '</span>';
+    }
+
+    /**
+     * Scales an organisation-wide headline figure to the selected branch, by
+     * that branch's share of the roll.
+     * LATER: the figure arrives from a query already scoped to :branch_id.
+     */
+    function mu_branch_share($orgValue) {
+        global $current_branch, $organisation;
+        if ($current_branch === 'all' || $current_branch === null) { return $orgValue; }
+        $b = get_branch($current_branch);
+        if (!$b) { return $orgValue; }
+        $total = max(1, (int) ($organisation['total_members'] ?? 1));
+        return $orgValue * ((int) $b['members_count'] / $total);
+    }
+}
+
 
 /* LATER: SELECT MAX(member_no) ... to continue the church's own sequence. */
 $next_member_no = 'MCP-' . date('Y') . '-' . str_pad((string) random_int(140, 999), 4, '0', STR_PAD_LEFT);
@@ -250,6 +311,46 @@ require __DIR__ . '/../components/header.php';
         <p style="color:var(--muted);font-size:12.5px;margin-bottom:18px">Their place in the life of the church.</p>
 
         <div class="form-grid">
+          <?php if ($branch_aware): ?>
+            <?php
+              /* Organisation-scope users choose; a branch-scope user is pinned
+                 to their own and the field is locked. */
+              $scoped   = ($user['scope'] ?? 'organisation') === 'branch';
+              $own      = $scoped ? get_branch($user['branch_id'] ?? 0) : null;
+              $selected = !$viewing_all ? get_branch($current_branch) : null;
+            ?>
+            <div class="field col-2">
+              <label for="branchPick">
+                <?= htmlspecialchars(t('branch_singular')) ?>
+                <?php if (!$scoped): ?><span class="req" aria-hidden="true">*</span><?php endif; ?>
+              </label>
+
+              <?php if ($scoped): ?>
+                <span class="locked-field">
+                  <input class="input" id="branchPick" readonly tabindex="-1"
+                         value="<?= htmlspecialchars($own['name'] ?? ($user['branch_name'] ?? '')) ?>"
+                         title="Your account is scoped to this <?= htmlspecialchars(mb_strtolower(t('branch_singular'))) ?>, so members are added here."
+                         aria-describedby="branchLockNote">
+                  <i class="fa-solid fa-lock locked-field__lock" aria-hidden="true"></i>
+                </span>
+                <p class="hint" id="branchLockNote">
+                  <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                  Locked to your own <?= htmlspecialchars(mb_strtolower(t('branch_singular'))) ?>.
+                </p>
+              <?php else: ?>
+                <select class="select" id="branchPick" data-req data-preview="branch">
+                  <option value="">Select&hellip;</option>
+                  <?php foreach ($branch_options as $b): ?>
+                    <option<?= $selected && (int) $b['id'] === (int) $selected['id'] ? ' selected' : '' ?>>
+                      <?= htmlspecialchars($b['name']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+                <p class="err">Choose a <?= htmlspecialchars(mb_strtolower(t('branch_singular'))) ?>.</p>
+              <?php endif; ?>
+            </div>
+          <?php endif; ?>
+
           <div class="field">
             <label for="memberNo">Membership number</label>
             <div style="display:flex;gap:8px">
@@ -424,6 +525,7 @@ require __DIR__ . '/../components/header.php';
         <div><dt>Suburb</dt><dd data-pv="suburb" class="preview__empty">—</dd></div>
         <div><dt>Marital</dt><dd data-pv="marital" class="preview__empty">—</dd></div>
         <div><dt>Occupation</dt><dd data-pv="occupation" class="preview__empty">—</dd></div>
+        <?php if ($branch_aware): ?><div><dt><?= htmlspecialchars(t('branch_singular')) ?></dt><dd data-pv="branch" class="preview__empty">—</dd></div><?php endif; ?>
         <?php if (mu_mod('departments')): ?><div><dt>Department</dt><dd data-pv="department" class="preview__empty">—</dd></div><?php endif; ?>
         <?php if (mu_mod('cell_groups')): ?><div><dt>Cell group</dt><dd data-pv="cell_group" class="preview__empty">—</dd></div><?php endif; ?>
         <div><dt>Status</dt><dd data-pv="status">Active</dd></div>
@@ -732,6 +834,7 @@ require __DIR__ . '/../components/header.php';
         ['Suburb', val('suburb')], ['Province', val('province')]
       ]],
       ['Church', 3, [
+        <?php if ($branch_aware): ?>['<?= addslashes(t('branch_singular')) ?>', val('branchPick')],<?php endif; ?>
         ['Membership number', val('memberNo')], ['Date joined', val('joined')],
         ['Status', val('status')], ['How they joined', how ? how.value : '—'],
         ['Cell group', val('cellGroup')]

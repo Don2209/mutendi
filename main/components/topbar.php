@@ -8,6 +8,7 @@
 
 if (!isset($base_url)) { require_once __DIR__ . '/../includes/config.php'; }
 if (!function_exists('main_allowed')) { require_once __DIR__ . '/sidebar.php'; }
+require_once __DIR__ . '/branch-switcher.php';
 
 /* LATER: these become links to the real create screens. */
 $quick_add = main_visible([
@@ -16,6 +17,12 @@ $quick_add = main_visible([
     ['label' => 'Record Contribution', 'icon' => 'fa-circle-plus', 'url' => 'finance/record.php',  'module' => 'finance',    'permission' => 'finance.add'],
     ['label' => 'Add Event',           'icon' => 'fa-calendar-plus','url' => 'events/add.php',     'module' => 'events'],
 ], $enabled_modules, $permissions);
+
+/* Organisation-level entry point: multi-branch tenant, organisation scope,
+   and the branches.add permission. Nothing renders otherwise. */
+$may_add_branch = is_multi_branch()
+    && ($user['scope'] ?? 'organisation') !== 'branch'
+    && in_array('branches.add', $permissions, true);
 
 $unread = count($notifications ?? []);
 ?>
@@ -27,6 +34,8 @@ $unread = count($notifications ?? []);
           aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">
     <i class="fa-solid fa-bars" aria-hidden="true"></i>
   </button>
+
+  <?php branch_switcher_render(); ?>
 
   <form class="search" role="search" onsubmit="return false">
     <i class="fa-solid fa-magnifying-glass search__icon" aria-hidden="true"></i>
@@ -42,7 +51,7 @@ $unread = count($notifications ?? []);
 
   <div class="topbar__right">
 
-    <?php if ($quick_add): ?>
+    <?php if ($quick_add || $may_add_branch): ?>
       <div class="drop" data-menu>
         <button class="quick" type="button" aria-expanded="false" aria-haspopup="true" data-menu-btn>
           <i class="fa-solid fa-plus" aria-hidden="true"></i>
@@ -50,6 +59,13 @@ $unread = count($notifications ?? []);
           <i class="fa-solid fa-chevron-down quick__chev" aria-hidden="true"></i>
         </button>
         <div class="menu" data-menu-panel hidden>
+          <?php if ($may_add_branch): ?>
+            <a class="menu__item" href="<?= $base_url ?>branches/add.php">
+              <i class="fa-solid fa-church" aria-hidden="true"></i>
+              Add <?= htmlspecialchars(t('branch_singular')) ?>
+            </a>
+            <div class="menu__sep" role="separator"></div>
+          <?php endif; ?>
           <?php foreach ($quick_add as $q): ?>
             <a class="menu__item" href="<?= htmlspecialchars($base_url . $q['url']) ?>">
               <i class="fa-solid <?= htmlspecialchars($q['icon']) ?>" aria-hidden="true"></i>
@@ -107,6 +123,8 @@ $unread = count($notifications ?? []);
     </div>
   </div>
 </header>
+
+<?php branch_switcher_after(); ?>
 
 <!-- Mobile search overlay, opened by the icon above. -->
 <div class="searchbar" id="searchBar" hidden>

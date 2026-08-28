@@ -64,7 +64,14 @@ if (!function_exists('main_is_active')) {
         $folder = basename(dirname($url));         /* '.' when the url is a bare file */
 
         if ($file !== $page) { return false; }
-        return ($folder === '.' || $folder === '') ? true : $folder === $dir;
+
+        if ($folder === '.' || $folder === '') {
+            /* A bare url such as index.php belongs to the app root, so it must
+               not also match branches/index.php or departments/index.php. */
+            global $base_url;
+            return $dir === basename(rtrim((string) $base_url, '/'));
+        }
+        return $folder === $dir;
     }
 }
 
@@ -108,6 +115,45 @@ foreach ($menu as $group) {
         'solo'    => count($items) === 1 && empty($items[0]['children']),
         'id'      => 'nav-' . preg_replace('/[^a-z0-9]+/', '-', strtolower($group['heading'] ?? 'group')),
     ];
+}
+
+/* ------------------------------------------------- the organisation group -- */
+/* Only for a multi-branch tenant, and only for users who can see past their
+   own branch. Inserted directly beneath MAIN without touching $menu, so the
+   rest of the navigation keeps its order, icons and labels exactly as they
+   are. Labels come from $terminology — nothing here says "Branch". */
+
+if (is_multi_branch() && ($user['scope'] ?? 'organisation') !== 'branch') {
+
+    $branch_items = main_visible([
+        ['label' => 'All ' . t('branch_plural'), 'icon' => 'fa-church', 'url' => 'branches/index.php'],
+        ['label' => 'Add ' . t('branch_singular'), 'icon' => 'fa-plus', 'url' => 'branches/add.php',
+         'permission' => 'branches.add'],
+        ['label' => t('branch_singular') . ' Reports', 'icon' => 'fa-chart-column', 'url' => '#',
+         'permission' => 'reports.view'],
+    ], $enabled_modules, $permissions);
+
+    if ($branch_items) {
+        /* branches/view.php is a future detail page; naming it here keeps the
+           group open on it without another edit to this file. */
+        $branch_pages = ['branches/index.php', 'branches/add.php', 'branches/view.php'];
+        $branch_active = false;
+        foreach ($branch_pages as $bp) {
+            if (main_is_active($bp, $current_page, $current_dir)) { $branch_active = true; break; }
+        }
+
+        $org_group = [
+            'heading' => t('org_singular'),
+            'icon'    => 'fa-sitemap',
+            'items'   => $branch_items,
+            'active'  => $branch_active,
+            'solo'    => count($branch_items) === 1,
+            'id'      => 'nav-organisation',
+        ];
+
+        /* Straight after MAIN, whatever MAIN happens to be called. */
+        array_splice($nav_groups, 1, 0, [$org_group]);
+    }
 }
 
 /* ------------------------------------------------------------ subscription -- */

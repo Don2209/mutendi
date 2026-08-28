@@ -12,7 +12,9 @@ require __DIR__ . '/../includes/config.php';
 
 /* ══════════════ DEMO ONLY — REMOVE BEFORE PRODUCTION ══════════════ */
 $demo_role       = isset($_GET['role'], $demo_roles[$_GET['role']]) ? $_GET['role'] : 'church_admin';
-$user            = $demo_roles[$demo_role]['user'];
+/* array_merge, not assignment: the scope keys from config must survive
+   so a branch-scope user stays scoped on this page. */
+$user            = array_merge($user, $demo_roles[$demo_role]['user']);
 $permissions     = $demo_roles[$demo_role]['perms'];
 $enabled_modules = $demo_roles[$demo_role]['modules'];
 /* ═══════════════════════════ END DEMO ═══════════════════════════ */
@@ -58,7 +60,77 @@ if (!function_exists('mu_can')) {
 }
 
 $rows  = $members_demo;
+
+/* ─────────────────────────── BRANCH AWARENESS ───────────────────────────
+   Resolves which branch is in view (the top bar's switcher sets ?branch=) and
+   scopes this page's data to it. Every addition below is inert for a single
+   church: is_multi_branch() is false, so no column, chip, filter or toggle is
+   rendered and the page behaves exactly as it did before.
+   ──────────────────────────────────────────────────────────────────────── */
+require_once __DIR__ . '/../components/branch-switcher.php';
+
+$branch_aware   = is_multi_branch();
+$viewing_all    = !$branch_aware || $current_branch === 'all' || $current_branch === null;
+$show_branch    = $branch_aware && $viewing_all;      /* column, chip and filter */
+$branch_options = $branch_aware ? get_visible_branches() : [];
+
+if (!function_exists('mu_branch_for')) {
+    /**
+     * Which branch a demo record belongs to. Deterministic from the record's
+     * own key, so a person or a group never hops between branches on reload.
+     * LATER: the row carries its own branch_id and this helper disappears.
+     */
+    function mu_branch_for(string $key): ?array {
+        static $pool = null;
+        if ($pool === null) { $pool = get_visible_branches(); }
+        if (!$pool) { return null; }
+        return $pool[crc32($key) % count($pool)];
+    }
+
+    /** One colour per group, so branches in the same group read together. */
+    function mu_branch_tone(array $b): string {
+        static $tones = [];
+        static $pool = ['var(--info)', 'var(--brand-500)', '#0F766E', 'var(--warn)', '#6D28D9'];
+        $g = $b['group_name'] ?? '';
+        if (!isset($tones[$g])) { $tones[$g] = $pool[count($tones) % count($pool)]; }
+        return $tones[$g];
+    }
+
+    /** The small coloured chip naming a record's branch. */
+    function mu_branch_chip(?array $b): string {
+        if (!$b) { return ''; }
+        return '<span class="bchip" title="' . htmlspecialchars($b['name']) . '">'
+             . '<span class="bchip__dot" style="background:' . mu_branch_tone($b) . '" aria-hidden="true"></span>'
+             . htmlspecialchars($b['name']) . '</span>';
+    }
+
+    /**
+     * Scales an organisation-wide headline figure to the selected branch, by
+     * that branch's share of the roll.
+     * LATER: the figure arrives from a query already scoped to :branch_id.
+     */
+    function mu_branch_share($orgValue) {
+        global $current_branch, $organisation;
+        if ($current_branch === 'all' || $current_branch === null) { return $orgValue; }
+        $b = get_branch($current_branch);
+        if (!$b) { return $orgValue; }
+        $total = max(1, (int) ($organisation['total_members'] ?? 1));
+        return $orgValue * ((int) $b['members_count'] / $total);
+    }
+}
+
 $stats = $people_stats['members'];
+
+/* Scope the roll and the headline figures to the branch in view. */
+if ($branch_aware) {
+    foreach ($rows as $i => $m) { $rows[$i]['_branch'] = mu_branch_for($m['member_no']); }
+    if (!$viewing_all) {
+        $rows = array_values(array_filter($rows, function ($m) use ($current_branch) {
+            return $m['_branch'] && (int) $m['_branch']['id'] === (int) $current_branch;
+        }));
+    }
+    foreach ($stats as $k => $v) { $stats[$k] = (int) round(mu_branch_share($v)); }
+}
 
 $page_title = 'Members';
 require __DIR__ . '/../components/header.php';
@@ -186,6 +258,16 @@ require __DIR__ . '/../components/header.php';
         </select>
       </div>
 
+      <?php if ($show_branch): ?>
+        <div class="field">
+          <label for="fBranch"><?= htmlspecialchars(t('branch_singular')) ?></label>
+          <select class="select" id="fBranch" data-filter>
+            <option>All</option>
+            <?php foreach ($branch_options as $b): ?><option><?= htmlspecialchars($b['name']) ?></option><?php endforeach; ?>
+          </select>
+        </div>
+      <?php endif; ?>
+
       <?php if (mu_mod('departments')): ?>
         <div class="field">
           <label for="fDept">Department</label>
@@ -261,6 +343,7 @@ require __DIR__ . '/../components/header.php';
                 <th>Contact</th>
                 <th class="is-sortable" data-sort="gender">Gender <i class="fa-solid fa-arrow-down-long sort" aria-hidden="true"></i></th>
                 <th class="is-sortable" data-sort="age">Age <i class="fa-solid fa-arrow-down-long sort" aria-hidden="true"></i></th>
+                <?php if ($show_branch): ?><th><?= htmlspecialchars(t('branch_singular')) ?></th><?php endif; ?>
                 <?php if (mu_mod('departments')): ?><th>Department</th><?php endif; ?>
                 <?php if (mu_mod('cell_groups')): ?><th>Cell Group</th><?php endif; ?>
                 <th>Status</th>
@@ -281,6 +364,7 @@ require __DIR__ . '/../components/header.php';
                     data-dept="<?= htmlspecialchars((string) $m['department']) ?>"
                     data-cell="<?= htmlspecialchars((string) $m['cell_group']) ?>"
                     data-marital="<?= htmlspecialchars($m['marital']) ?>"
+                    <?= $branch_aware ? 'data-branch="' . htmlspecialchars($m['_branch']['name'] ?? '') . '"' : '' ?>
                     data-joined="<?= htmlspecialchars($m['joined']) ?>">
                   <td><input class="check" type="checkbox" data-row-check aria-label="Select <?= htmlspecialchars($m['name']) ?>"></td>
                   <td class="num"><?= $i + 1 ?></td>
@@ -303,6 +387,7 @@ require __DIR__ . '/../components/header.php';
                   </td>
                   <td><?= htmlspecialchars($m['gender']) ?></td>
                   <td class="nowrap"><?= (int) $m['age'] ?><span class="tsub"><?= mu_date($m['dob']) ?></span></td>
+                  <?php if ($show_branch): ?><td class="nowrap"><?= mu_branch_chip($m['_branch'] ?? null) ?></td><?php endif; ?>
                   <?php if (mu_mod('departments')): ?>
                     <td class="nowrap"><?= $m['department'] ? '<span class="pill is-brand">' . htmlspecialchars($m['department']) . '</span>' : '<span class="tsub">&mdash;</span>' ?></td>
                   <?php endif; ?>
@@ -356,6 +441,7 @@ require __DIR__ . '/../components/header.php';
           <?php foreach ($rows as $m): ?>
             <article class="pcard" data-card
                      data-name="<?= htmlspecialchars(mb_strtolower($m['name'])) ?>"
+                     <?= $branch_aware ? 'data-branch="' . htmlspecialchars($m['_branch']['name'] ?? '') . '"' : '' ?>
                      data-status="<?= htmlspecialchars($m['status']) ?>">
               <button class="pcard__main" type="button" data-card-toggle>
                 <?= mu_av($m['name'], 'md') ?>
@@ -372,6 +458,7 @@ require __DIR__ . '/../components/header.php';
                   <div class="pcard__row"><dt>Gender / Age</dt><dd><?= htmlspecialchars($m['gender']) ?> &middot; <?= (int) $m['age'] ?></dd></div>
                   <?php if (mu_mod('departments')): ?><div class="pcard__row"><dt>Department</dt><dd><?= htmlspecialchars($m['department'] ?: '—') ?></dd></div><?php endif; ?>
                   <?php if (mu_mod('cell_groups')): ?><div class="pcard__row"><dt>Cell Group</dt><dd><?= htmlspecialchars($m['cell_group'] ?: '—') ?></dd></div><?php endif; ?>
+                  <?php if ($show_branch): ?><div class="pcard__row"><dt><?= htmlspecialchars(t('branch_singular')) ?></dt><dd><?= htmlspecialchars($m['_branch']['name'] ?? '—') ?></dd></div><?php endif; ?>
                   <div class="pcard__row"><dt>Joined</dt><dd><?= mu_date($m['joined']) ?></dd></div>
                   <div class="pcard__row"><dt>Last attended</dt><dd><?= mu_ago($m['last_attended_days']) ?></dd></div>
                 </dl>
@@ -392,11 +479,13 @@ require __DIR__ . '/../components/header.php';
           <?php foreach ($rows as $m): ?>
             <article class="gcard" data-card style="align-items:center;text-align:center"
                      data-name="<?= htmlspecialchars(mb_strtolower($m['name'])) ?>"
+                     <?= $branch_aware ? 'data-branch="' . htmlspecialchars($m['_branch']['name'] ?? '') . '"' : '' ?>
                      data-status="<?= htmlspecialchars($m['status']) ?>">
               <?= mu_av($m['name'], 'lg') ?>
               <h3 style="margin-top:12px;color:var(--ink);font-size:14px;font-weight:800"><?= htmlspecialchars($m['name']) ?></h3>
               <p style="margin-top:3px;color:var(--faint);font-size:11.5px"><?= htmlspecialchars($m['member_no']) ?></p>
               <p style="margin-top:10px"><span class="spill is-<?= strtolower($m['status']) ?>"><?= htmlspecialchars($m['status']) ?></span></p>
+              <?php if ($show_branch): ?><p style="margin-top:10px"><?= mu_branch_chip($m['_branch'] ?? null) ?></p><?php endif; ?>
               <p style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
                 <?php if (mu_mod('departments') && $m['department']): ?><span class="pill is-brand"><?= htmlspecialchars($m['department']) ?></span><?php endif; ?>
                 <?php if (mu_mod('cell_groups') && $m['cell_group']): ?><span class="pill is-brand"><?= htmlspecialchars($m['cell_group']) ?></span><?php endif; ?>
@@ -423,9 +512,11 @@ require __DIR__ . '/../components/header.php';
           ?>
             <button class="crow" type="button" data-card data-open-member="<?= (int) $m['id'] ?>"
                     data-name="<?= htmlspecialchars(mb_strtolower($m['name'])) ?>"
+                    <?= $branch_aware ? 'data-branch="' . htmlspecialchars($m['_branch']['name'] ?? '') . '"' : '' ?>
                     data-status="<?= htmlspecialchars($m['status']) ?>" style="width:100%;text-align:left">
               <?= mu_av($m['name'], 'xs') ?>
               <span class="crow__name"><?= htmlspecialchars($m['name']) ?></span>
+              <?php if ($show_branch): ?><?= mu_branch_chip($m['_branch'] ?? null) ?><?php endif; ?>
               <span class="crow__phone"><?= htmlspecialchars($m['phone']) ?></span>
               <span class="crow__dot" style="background:<?= $dot ?>" aria-label="<?= htmlspecialchars($m['status']) ?>"></span>
               <i class="fa-solid fa-chevron-right crow__chev" aria-hidden="true"></i>
@@ -827,7 +918,7 @@ require __DIR__ . '/../components/header.php';
 
   function currentFilters() {
     var f = {};
-    ['fStatus','fGender','fAge','fDept','fCell','fMarital'].forEach(function (id) {
+    ['fStatus','fGender','fAge','fDept','fCell','fMarital'<?= $branch_aware ? ",'fBranch'" : '' ?>].forEach(function (id) {
       var el = document.getElementById(id);
       if (el && el.value && el.value !== 'All') { f[id] = el.value; }
     });
@@ -862,6 +953,8 @@ require __DIR__ . '/../components/header.php';
       if (ok && f.fDept && el.getAttribute('data-dept') !== f.fDept) { ok = false; }
       if (ok && f.fCell && el.getAttribute('data-cell') !== f.fCell) { ok = false; }
       if (ok && f.fMarital && el.getAttribute('data-marital') !== f.fMarital) { ok = false; }
+<?php if ($branch_aware): ?>      if (ok && f.fBranch && el.getAttribute('data-branch') !== f.fBranch) { ok = false; }
+<?php endif; ?>
       if (ok && statTile === 'active' && status !== 'Active') { ok = false; }
       if (ok && statTile === 'inactive' && status !== 'Inactive') { ok = false; }
 

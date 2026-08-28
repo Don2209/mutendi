@@ -93,6 +93,13 @@ $user = [
     'role_label' => 'Church Administrator',
     'initials'   => 'TM',
     'email'      => 'tendai@mutendicentral.co.zw',
+
+    /* Multi-branch scope (see section 15). 'organisation' sees every branch;
+       'branch' is pinned to branch_id and may see nothing else.
+       LATER: SELECT scope, branch_id FROM users WHERE id = :user_id; */
+    'scope'       => 'organisation',
+    'branch_id'   => 1,
+    'branch_name' => 'St Mary\'s Cathedral',
 ];
 
 /* ==========================================================================
@@ -102,9 +109,13 @@ $user = [
 
 $permissions = [
     'members.view', 'members.add', 'members.edit', 'members.delete', 'members.export',
-    'finance.view', 'finance.add', 'finance.reports',
+    'finance.view', 'finance.add', 'finance.edit', 'finance.delete', 'finance.reports',
+    'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports', 'attendance.manage',
     'payroll.view',
     'settings.manage',
+    /* Organisation structure: these unlock the branches pages in the sidebar
+       (All / Add / Reports) and the Add entry points across the UI. */
+    'branches.add', 'branches.edit', 'reports.view',
 ];
 
 /* ==========================================================================
@@ -884,6 +895,105 @@ $widgets = [
             'default' => 34,
         ],
     ],
+    /* ─────────────────── ORGANISATION-LEVEL WIDGETS ───────────────────
+       org_only => true means these render ONLY in organisation mode: a
+       multi-branch tenant, an organisation-scope user, and "All
+       {branch_plural}" selected. Negative priorities sort them ahead of the
+       branch-level set without renumbering anything above.
+       ─────────────────────────────────────────────────────────────────── */
+
+    'total_branches' => [
+        'title'        => 'Total Branches',        /* relabelled at render from $terminology */
+        'icon'         => 'fa-church',
+        'type'         => 'kpi',
+        'module'       => null,
+        'permission'   => null,
+        'size'         => 'quarter',
+        'org_only'     => true,
+        'priority'     => [
+            'church_admin' => -60, 'pastor' => -40, 'secretary' => -60,
+            'treasurer' => -30, 'dept_head' => -60, 'cell_leader' => -60,
+            'usher' => -60, 'default' => -60,
+        ],
+    ],
+
+    'org_attendance_total' => [
+        'title'        => 'Organisation Attendance',
+        'icon'         => 'fa-clipboard-check',
+        'type'         => 'kpi',
+        'module'       => 'attendance',
+        'permission'   => null,
+        'size'         => 'quarter',
+        'org_only'     => true,
+        'priority'     => [
+            'church_admin' => -50, 'pastor' => -50, 'secretary' => -50,
+            'treasurer' => -20, 'dept_head' => -50, 'cell_leader' => -50,
+            'usher' => -50, 'default' => -50,
+        ],
+    ],
+
+    'org_giving_total' => [
+        'title'        => 'Organisation Giving',
+        'icon'         => 'fa-hand-holding-dollar',
+        'type'         => 'kpi',
+        'module'       => 'finance',
+        'permission'   => 'finance.reports',
+        'size'         => 'quarter',
+        'org_only'     => true,
+        'roles_hidden' => ['usher', 'cell_leader', 'dept_head'],
+        'priority'     => [
+            'church_admin' => -45, 'pastor' => -25, 'secretary' => -45,
+            'treasurer' => -60, 'dept_head' => -45, 'cell_leader' => -45,
+            'usher' => -45, 'default' => -45,
+        ],
+    ],
+
+    'branch_comparison' => [
+        'title'        => 'Branch Comparison',
+        'icon'         => 'fa-chart-column',
+        'type'         => 'chart',
+        'module'       => null,
+        'permission'   => null,
+        'size'         => 'half',
+        'org_only'     => true,
+        'roles_hidden' => ['usher'],
+        'priority'     => [
+            'church_admin' => -30, 'pastor' => -35, 'secretary' => -30,
+            'treasurer' => -40, 'dept_head' => -30, 'cell_leader' => -30,
+            'usher' => -30, 'default' => -30,
+        ],
+    ],
+
+    'branch_leaderboard' => [
+        'title'        => 'Fastest Growing',
+        'icon'         => 'fa-ranking-star',
+        'type'         => 'list',
+        'module'       => null,
+        'permission'   => null,
+        'size'         => 'third',
+        'org_only'     => true,
+        'priority'     => [
+            'church_admin' => -20, 'pastor' => -45, 'secretary' => -20,
+            'treasurer' => -15, 'dept_head' => -20, 'cell_leader' => -20,
+            'usher' => -20, 'default' => -20,
+        ],
+    ],
+
+    'branches_attention' => [
+        'title'        => 'Branches Needing Attention',
+        'icon'         => 'fa-triangle-exclamation',
+        'type'         => 'list',
+        'module'       => null,
+        'permission'   => null,
+        'size'         => 'half',
+        'org_only'     => true,
+        'priority'     => [
+            'church_admin' => -10, 'pastor' => -60, 'secretary' => -40,
+            'treasurer' => -10, 'dept_head' => -10, 'cell_leader' => -10,
+            'usher' => -10, 'default' => -10,
+        ],
+    ],
+
     'attendance_streak' => [
         'title'        => 'Attendance Streak',
         'icon'         => 'fa-fire',
@@ -3273,6 +3383,666 @@ $people_stats = [
 ];
 
 /* ==========================================================================
+   13b. ATTENDANCE — SERVICES, REGISTERS AND COUNT GROUPS
+   Everything the Record Attendance page needs. The member roll it marks is
+   $members_demo above; only the service metadata lives here.
+   ========================================================================== */
+
+/* The services a register can be taken against. `default_start` seeds the
+   Service Details time fields so the usher rarely has to type a time. `dow`
+   is the weekday the service actually falls on — the register dates every
+   demo row off it, so a "Sunday Service" is never dated to a Thursday.
+   LATER: SELECT id, name, icon, default_start, default_end
+            FROM service_types WHERE church_id = :church_id AND active = 1
+        ORDER BY sort_order; */
+/* ──────────────────────────── THE SERVICE LIST ────────────────────────────
+   The full definition of every recurring service the church holds. This is
+   what attendance/services.php manages, and it is the single source the
+   record page's dropdown is built from — change a service here and the
+   register, the recorder and the schedule all follow.
+
+   `dow` is the weekday the service falls on; the register dates every demo
+   row off it, so a "Sunday Service" is never dated to a Thursday.
+   `spark` is the last eight occurrences, oldest first.
+   LATER: SELECT * FROM services WHERE church_id = :church_id ORDER BY sort;
+   ──────────────────────────────────────────────────────────────────────── */
+$services_demo = [
+    [
+        'id' => 'sunday-first', 'name' => 'Sunday First Service', 'type' => 'Weekly',
+        'icon' => 'fa-church', 'colour' => '#662F97',
+        'dow' => 'Sunday', 'default_start' => '08:00', 'default_end' => '10:00',
+        'venue' => 'Main Sanctuary', 'responsible' => 'Rev. Enock Sithole',
+        'expected' => 420, 'average' => 331, 'active' => true, 'last_held_days' => 4,
+        'description' => 'The early Sunday gathering, with the full liturgy and a shorter sermon.',
+        'notes' => 'Doors open 07:30. Ushers to be seated by 07:45.',
+        'track_individual' => true, 'record_offering' => true,
+        'spark' => [289, 302, 358, 331, 344, 318, 327, 331],
+    ],
+    [
+        'id' => 'sunday-second', 'name' => 'Sunday Second Service', 'type' => 'Weekly',
+        'icon' => 'fa-church', 'colour' => '#8F5CC2',
+        'dow' => 'Sunday', 'default_start' => '10:30', 'default_end' => '12:30',
+        'venue' => 'Main Sanctuary', 'responsible' => 'Rev. Enock Sithole',
+        'expected' => 500, 'average' => 418, 'active' => true, 'last_held_days' => 4,
+        'description' => 'The main Sunday service. Highest attendance of the week.',
+        'notes' => 'Overflow seating in the Fellowship Hall when above 460.',
+        'track_individual' => true, 'record_offering' => true,
+        'spark' => [372, 397, 441, 418, 402, 429, 411, 418],
+    ],
+    [
+        'id' => 'sunday-school', 'name' => 'Sunday School', 'type' => 'Weekly',
+        'icon' => 'fa-child-reaching', 'colour' => '#0F766E',
+        'dow' => 'Sunday', 'default_start' => '09:00', 'default_end' => '10:15',
+        'venue' => 'Education Block', 'responsible' => 'Grace Chikomo',
+        'expected' => 180, 'average' => 142, 'active' => true, 'last_held_days' => 4,
+        'description' => 'Age-banded classes for children while the first service runs.',
+        'notes' => 'Register taken per class, then totalled.',
+        'track_individual' => true, 'record_offering' => false,
+        'spark' => [118, 131, 149, 142, 138, 151, 144, 142],
+    ],
+    [
+        'id' => 'midweek', 'name' => 'Midweek Service', 'type' => 'Weekly',
+        'icon' => 'fa-book-bible', 'colour' => '#1D4ED8',
+        'dow' => 'Wednesday', 'default_start' => '17:30', 'default_end' => '19:00',
+        'venue' => 'Main Sanctuary', 'responsible' => 'Grace Chikomo',
+        'expected' => 200, 'average' => 152, 'active' => true, 'last_held_days' => 1,
+        'description' => 'Teaching service working through a book of the Bible.',
+        'notes' => '', 'track_individual' => true, 'record_offering' => true,
+        'spark' => [139, 147, 168, 152, 161, 144, 158, 152],
+    ],
+    [
+        'id' => 'prayer', 'name' => 'Friday Prayer Meeting', 'type' => 'Weekly',
+        'icon' => 'fa-hands-praying', 'colour' => '#B45309',
+        'dow' => 'Friday', 'default_start' => '05:30', 'default_end' => '07:00',
+        'venue' => 'Prayer Chapel', 'responsible' => 'Blessing Moyo',
+        'expected' => 100, 'average' => 64, 'active' => true, 'last_held_days' => 6,
+        'description' => 'Early morning intercession before the working day.',
+        'notes' => 'Numbers drop sharply in the rains.',
+        'track_individual' => true, 'record_offering' => false,
+        'spark' => [58, 64, 71, 64, 52, 68, 61, 71],
+    ],
+    [
+        'id' => 'youth', 'name' => 'Youth Service', 'type' => 'Weekly',
+        'icon' => 'fa-fire', 'colour' => '#BE185D',
+        'dow' => 'Saturday', 'default_start' => '14:00', 'default_end' => '16:00',
+        'venue' => 'Youth Hall', 'responsible' => 'Blessing Moyo',
+        'expected' => 175, 'average' => 133, 'active' => true, 'last_held_days' => 12,
+        'description' => 'Teens and young adults. Music-led, with a short talk.',
+        'notes' => '', 'track_individual' => true, 'record_offering' => true,
+        'spark' => [121, 128, 144, 133, 139, 126, 131, 144],
+    ],
+    [
+        'id' => 'womens', 'name' => "Women's Fellowship", 'type' => 'Weekly',
+        'icon' => 'fa-person-dress', 'colour' => '#6D28D9',
+        'dow' => 'Thursday', 'default_start' => '14:00', 'default_end' => '16:00',
+        'venue' => 'Fellowship Hall', 'responsible' => 'Grace Chikomo',
+        'expected' => 140, 'average' => 108, 'active' => true, 'last_held_days' => 7,
+        'description' => 'Weekly gathering of the women of the parish.',
+        'notes' => 'Creche provided.', 'track_individual' => true, 'record_offering' => true,
+        'spark' => [96, 104, 118, 108, 112, 101, 109, 108],
+    ],
+    [
+        'id' => 'mens', 'name' => "Men's Fellowship", 'type' => 'Monthly',
+        'icon' => 'fa-person', 'colour' => '#0369A1',
+        'dow' => 'Saturday', 'default_start' => '06:00', 'default_end' => '08:00',
+        'venue' => 'Fellowship Hall', 'responsible' => 'Farai Nyoni',
+        'expected' => 120, 'average' => 74, 'active' => true, 'last_held_days' => 19,
+        'day_of_month' => 'First Saturday',
+        'description' => 'Breakfast meeting on the first Saturday of the month.',
+        'notes' => '', 'track_individual' => true, 'record_offering' => true,
+        'spark' => [61, 68, 82, 74, 71, 79, 66, 74],
+    ],
+    [
+        'id' => 'overnight', 'name' => 'Overnight Prayer', 'type' => 'Monthly',
+        'icon' => 'fa-moon', 'colour' => '#475569',
+        'dow' => 'Friday', 'default_start' => '22:00', 'default_end' => '04:00',
+        'venue' => 'Main Sanctuary', 'responsible' => 'Blessing Moyo',
+        'expected' => 160, 'average' => 118, 'active' => true, 'last_held_days' => 27,
+        'day_of_month' => 'Last Friday',
+        'description' => 'All-night vigil on the last Friday of the month.',
+        'notes' => 'Runs past midnight into Saturday morning.',
+        'track_individual' => false, 'record_offering' => true,
+        'spark' => [102, 118, 131, 118, 109, 124, 114, 118],
+    ],
+    [
+        'id' => 'cell', 'name' => 'Cell Meetings', 'type' => 'Weekly',
+        'icon' => 'fa-people-group', 'colour' => '#15803D',
+        'dow' => 'Tuesday', 'default_start' => '18:00', 'default_end' => '19:30',
+        'venue' => "Members' homes", 'responsible' => 'Rudo Chirwa',
+        'expected' => 35, 'average' => 26, 'active' => true, 'last_held_days' => 16,
+        'description' => 'Small groups meeting in homes across the zones.',
+        'notes' => 'Figures are per cell, not the whole parish.',
+        'track_individual' => true, 'record_offering' => true,
+        'spark' => [22, 24, 29, 26, 27, 23, 28, 26],
+    ],
+    [
+        'id' => 'baptism', 'name' => 'Baptism Service', 'type' => 'Special',
+        'icon' => 'fa-water', 'colour' => '#0891B2',
+        'dow' => 'Sunday', 'default_start' => '14:00', 'default_end' => '16:30',
+        'venue' => 'Riverside, Manyame', 'responsible' => 'Rev. Enock Sithole',
+        'expected' => 90, 'average' => 68, 'active' => true, 'last_held_days' => 63,
+        'description' => 'Held quarterly, or when there are enough candidates.',
+        'notes' => 'Transport arranged from the church at 13:00.',
+        'track_individual' => true, 'record_offering' => false,
+        'spark' => [54, 61, 74, 68, 59, 71, 64, 68],
+    ],
+    [
+        'id' => 'communion', 'name' => 'Communion Service', 'type' => 'Monthly',
+        'icon' => 'fa-wine-glass', 'colour' => '#B4243F',
+        'dow' => 'Sunday', 'default_start' => '10:30', 'default_end' => '12:45',
+        'venue' => 'Main Sanctuary', 'responsible' => 'Rev. Enock Sithole',
+        'expected' => 500, 'average' => 441, 'active' => true, 'last_held_days' => 25,
+        'day_of_month' => 'First Sunday',
+        'description' => 'The first Sunday of the month, in place of the second service.',
+        'notes' => 'Elements prepared by the Protocol team.',
+        'track_individual' => true, 'record_offering' => true,
+        'spark' => [402, 418, 458, 441, 436, 449, 428, 441],
+    ],
+    [
+        /* Kept because two registers in the history are attached to it.
+           Deleting the service would orphan them. */
+        'id' => 'special', 'name' => 'Special Service', 'type' => 'One-off',
+        'icon' => 'fa-star', 'colour' => '#CA8A04',
+        'dow' => 'Sunday', 'default_start' => '09:00', 'default_end' => '12:00',
+        'venue' => 'Main Sanctuary', 'responsible' => 'Tendai Marufu',
+        'expected' => 650, 'average' => 560, 'active' => false, 'last_held_days' => 25,
+        'on_date' => '+21 days',
+        'description' => 'Conventions, ordinations and other one-off diocesan occasions.',
+        'notes' => 'Scheduled individually; not part of the weekly pattern.',
+        'track_individual' => true, 'record_offering' => true,
+        'spark' => [0, 0, 508, 0, 0, 0, 612, 0],
+    ],
+];
+
+/* The recorder's dropdown is exactly the services defined above — that is what
+   makes services.php the setup page for record.php rather than a parallel
+   list that can drift out of step. */
+$service_types_demo = array_map(static function (array $s): array {
+    return [
+        'id'            => $s['id'],
+        'name'          => $s['name'],
+        'icon'          => $s['icon'],
+        'default_start' => $s['default_start'],
+        'default_end'   => $s['default_end'],
+        'dow'           => $s['dow'],
+    ];
+}, $services_demo);
+
+/* The pickers in the add/edit modal. */
+$service_venues_demo = ['Main Sanctuary', 'Fellowship Hall', 'Education Block', 'Youth Hall',
+                        'Prayer Chapel', "Members' homes", 'Riverside, Manyame', 'Church Grounds'];
+$service_icons_demo  = ['fa-church', 'fa-book-bible', 'fa-hands-praying', 'fa-fire', 'fa-people-group',
+                        'fa-star', 'fa-child-reaching', 'fa-person', 'fa-person-dress', 'fa-moon',
+                        'fa-water', 'fa-wine-glass', 'fa-music', 'fa-dove', 'fa-heart', 'fa-hand-holding-heart'];
+$service_colours_demo = ['#662F97', '#8F5CC2', '#1D4ED8', '#0369A1', '#0891B2', '#0F766E',
+                         '#15803D', '#CA8A04', '#B45309', '#B4243F', '#BE185D', '#6D28D9', '#475569'];
+
+/* Registers already captured. The setup card checks the chosen date and
+   service against this list and shows the "already recorded" notice on a hit.
+   Keyed "YYYY-MM-DD|service_id" so the lookup is a single array_key_exists.
+   Dates are relative to today so the demo never goes stale.
+   LATER: SELECT id, service_date, service_type_id, present, absent, recorded_by
+            FROM attendance_registers
+           WHERE church_id = :church_id AND branch_id = :branch_id
+             AND service_date = :date AND service_type_id = :service; */
+$attendance_recorded_demo = [
+    date('Y-m-d', strtotime('last sunday')) . '|sunday-first'  => ['present' => 318, 'absent' => 74, 'recorded_by' => 'Simba Dube',    'at' => '10:12'],
+    date('Y-m-d', strtotime('last sunday')) . '|sunday-second' => ['present' => 402, 'absent' => 61, 'recorded_by' => 'Grace Chikomo', 'at' => '12:48'],
+    date('Y-m-d', strtotime('-4 days'))     . '|midweek'       => ['present' => 146, 'absent' => 38, 'recorded_by' => 'Simba Dube',    'at' => '19:20'],
+    date('Y-m-d', strtotime('-2 days'))     . '|prayer'        => ['present' => 64,  'absent' => 12, 'recorded_by' => 'Blessing Moyo', 'at' => '07:05'],
+];
+
+/* Quick Count buckets — the head-count mode for services too large or too
+   fluid to mark individually. Order is the order they appear on screen.
+   LATER: SELECT bucket_key, label FROM attendance_count_groups
+           WHERE church_id = :church_id ORDER BY sort_order; */
+$attendance_count_groups = [
+    ['key' => 'men',      'label' => 'Men',      'icon' => 'fa-person',       'tone' => 'blue'],
+    ['key' => 'women',    'label' => 'Women',    'icon' => 'fa-person-dress', 'tone' => 'pink'],
+    ['key' => 'youth',    'label' => 'Youth',    'icon' => 'fa-fire',         'tone' => 'purple'],
+    ['key' => 'children', 'label' => 'Children', 'icon' => 'fa-child-reaching','tone' => 'teal'],
+    ['key' => 'visitors', 'label' => 'Visitors', 'icon' => 'fa-user-plus',    'tone' => 'amber'],
+];
+
+/* The weather note on a register. Rain is the single biggest predictor of a
+   thin Sunday in Harare, so it is worth recording alongside the count. */
+$attendance_weather_demo = ['Clear', 'Cloudy', 'Light rain', 'Heavy rain', 'Storm', 'Very hot', 'Cold'];
+
+/* ==========================================================================
+   13c. ATTENDANCE REGISTER — THE HISTORICAL RECORD
+   What the register page reads. Two shapes, because the page answers two
+   different questions: one row per service, and one row per member.
+   ========================================================================== */
+
+/* Every recorded service, newest first. `expected` is the roll at the time,
+   which is what the rate is a percentage of — a register taken when the roll
+   was smaller must not look worse than it was.
+   `weeks_ago` counts back from the most recent occurrence of that service's
+   own weekday, so every date lands on the right day and never goes stale.
+   LATER: SELECT r.id, r.service_date, r.service_type_id, r.present, r.absent,
+                 r.excused, r.visitors, r.expected, r.offering, u.name
+            FROM attendance_registers r JOIN users u ON u.id = r.recorded_by
+           WHERE r.church_id = :church_id
+             AND (:branch_id IS NULL OR r.branch_id = :branch_id)
+             AND r.service_date BETWEEN :from AND :to
+        ORDER BY r.service_date DESC, r.start_time DESC; */
+$attendance_register_demo = [
+    ['id' => 320, 'weeks_ago' =>  0, 'service' => 'prayer',        'present' =>  71, 'absent' =>  18, 'excused' =>  4, 'visitors' =>  2, 'expected' =>  93, 'offering' =>  118.00, 'by' => 'Blessing Moyo', 'preacher' => 'Rev. Enock Sithole',  'theme' => 'Psalm 121 — I lift up my eyes',        'start' => '05:30', 'end' => '07:00', 'weather' => 'Cold'],
+    ['id' => 319, 'weeks_ago' =>  0, 'service' => 'midweek',       'present' => 152, 'absent' =>  34, 'excused' =>  7, 'visitors' =>  6, 'expected' => 193, 'offering' =>  264.50, 'by' => 'Simba Dube',    'preacher' => 'Grace Chikomo',       'theme' => 'Acts 2 — The early church',           'start' => '17:30', 'end' => '19:00', 'weather' => 'Clear'],
+    ['id' => 318, 'weeks_ago' =>  0, 'service' => 'sunday-second', 'present' => 418, 'absent' =>  57, 'excused' => 11, 'visitors' => 23, 'expected' => 486, 'offering' => 1284.00, 'by' => 'Grace Chikomo', 'preacher' => 'Rev. Enock Sithole',  'theme' => 'Romans 8:28 — All things work together', 'start' => '10:30', 'end' => '12:30', 'weather' => 'Clear'],
+    ['id' => 317, 'weeks_ago' =>  0, 'service' => 'sunday-first',  'present' => 331, 'absent' =>  68, 'excused' => 14, 'visitors' => 12, 'expected' => 413, 'offering' =>  902.25, 'by' => 'Simba Dube',    'preacher' => 'Rev. Enock Sithole',  'theme' => 'Romans 8:28 — All things work together', 'start' => '08:00', 'end' => '10:00', 'weather' => 'Clear'],
+    ['id' => 316, 'weeks_ago' =>  1, 'service' => 'youth',         'present' => 144, 'absent' =>  21, 'excused' =>  5, 'visitors' =>  9, 'expected' => 170, 'offering' =>  186.00, 'by' => 'Blessing Moyo', 'preacher' => 'Blessing Moyo',       'theme' => 'Daniel 1 — Dare to be different',     'start' => '14:00', 'end' => '16:00', 'weather' => 'Very hot'],
+    ['id' => 315, 'weeks_ago' =>  1, 'service' => 'prayer',        'present' =>  58, 'absent' =>  31, 'excused' =>  4, 'visitors' =>  1, 'expected' =>  93, 'offering' =>   74.00, 'by' => 'Blessing Moyo', 'preacher' => 'Farai Nyoni',         'theme' => 'Ephesians 6 — The armour of God',     'start' => '05:30', 'end' => '07:00', 'weather' => 'Heavy rain'],
+    ['id' => 314, 'weeks_ago' =>  1, 'service' => 'midweek',       'present' => 168, 'absent' =>  22, 'excused' =>  3, 'visitors' =>  4, 'expected' => 193, 'offering' =>  301.75, 'by' => 'Simba Dube',    'preacher' => 'Grace Chikomo',       'theme' => 'Acts 3 — At the Beautiful Gate',      'start' => '17:30', 'end' => '19:00', 'weather' => 'Cloudy'],
+    ['id' => 313, 'weeks_ago' =>  1, 'service' => 'sunday-second', 'present' => 441, 'absent' =>  38, 'excused' =>  7, 'visitors' => 31, 'expected' => 486, 'offering' => 1512.00, 'by' => 'Grace Chikomo', 'preacher' => 'Rev. Enock Sithole',  'theme' => 'Harvest Thanksgiving',                'start' => '10:30', 'end' => '12:45', 'weather' => 'Clear'],
+    ['id' => 312, 'weeks_ago' =>  1, 'service' => 'sunday-first',  'present' => 358, 'absent' =>  44, 'excused' => 11, 'visitors' => 18, 'expected' => 413, 'offering' => 1046.50, 'by' => 'Simba Dube',    'preacher' => 'Rev. Enock Sithole',  'theme' => 'Harvest Thanksgiving',                'start' => '08:00', 'end' => '10:15', 'weather' => 'Clear'],
+    ['id' => 311, 'weeks_ago' =>  2, 'service' => 'cell',          'present' =>  26, 'absent' =>   6, 'excused' =>  1, 'visitors' =>  3, 'expected' =>  33, 'offering' =>   42.00, 'by' => 'Rudo Chirwa',   'preacher' => 'Rudo Chirwa',         'theme' => 'Fellowship and the breaking of bread','start' => '18:00', 'end' => '19:30', 'weather' => 'Clear'],
+    ['id' => 310, 'weeks_ago' =>  2, 'service' => 'midweek',       'present' => 139, 'absent' =>  48, 'excused' =>  6, 'visitors' =>  2, 'expected' => 193, 'offering' =>  221.00, 'by' => 'Simba Dube',    'preacher' => 'Grace Chikomo',       'theme' => 'Acts 4 — Boldness in prayer',         'start' => '17:30', 'end' => '19:00', 'weather' => 'Light rain'],
+    ['id' => 309, 'weeks_ago' =>  2, 'service' => 'sunday-second', 'present' => 397, 'absent' =>  74, 'excused' => 15, 'visitors' => 17, 'expected' => 486, 'offering' => 1188.00, 'by' => 'Grace Chikomo', 'preacher' => 'Rev. Enock Sithole',  'theme' => 'James 1 — Count it all joy',          'start' => '10:30', 'end' => '12:30', 'weather' => 'Cloudy'],
+    ['id' => 308, 'weeks_ago' =>  2, 'service' => 'sunday-first',  'present' => 302, 'absent' =>  96, 'excused' => 15, 'visitors' =>  9, 'expected' => 413, 'offering' =>  788.00, 'by' => 'Simba Dube',    'preacher' => 'Grace Chikomo',       'theme' => 'James 1 — Count it all joy',          'start' => '08:00', 'end' => '10:00', 'weather' => 'Light rain'],
+    ['id' => 307, 'weeks_ago' =>  3, 'service' => 'special',       'present' => 612, 'absent' =>  21, 'excused' =>  4, 'visitors' => 88, 'expected' => 637, 'offering' => 3104.00, 'by' => 'Tendai Marufu', 'preacher' => 'Bishop S. Mutendi',   'theme' => 'Diocesan Convention Sunday',          'start' => '09:00', 'end' => '14:30', 'weather' => 'Clear'],
+    ['id' => 306, 'weeks_ago' =>  4, 'service' => 'youth',         'present' => 121, 'absent' =>  44, 'excused' =>  5, 'visitors' =>  4, 'expected' => 170, 'offering' =>  143.50, 'by' => 'Blessing Moyo', 'preacher' => 'Blessing Moyo',       'theme' => 'Proverbs 4 — Guard your heart',       'start' => '14:00', 'end' => '16:00', 'weather' => 'Storm'],
+    ['id' => 305, 'weeks_ago' =>  4, 'service' => 'sunday-second', 'present' => 372, 'absent' =>  98, 'excused' => 16, 'visitors' => 14, 'expected' => 486, 'offering' => 1067.00, 'by' => 'Grace Chikomo', 'preacher' => 'Rev. Enock Sithole',  'theme' => 'Isaiah 40 — They shall renew',        'start' => '10:30', 'end' => '12:30', 'weather' => 'Clear'],
+    ['id' => 304, 'weeks_ago' =>  5, 'service' => 'sunday-first',  'present' => 289, 'absent' => 104, 'excused' => 20, 'visitors' => 11, 'expected' => 413, 'offering' =>  731.50, 'by' => 'Simba Dube',    'preacher' => 'Farai Nyoni',         'theme' => 'Malachi 3 — Bring the whole tithe',   'start' => '08:00', 'end' => '10:00', 'weather' => 'Heavy rain'],
+    ['id' => 303, 'weeks_ago' =>  7, 'service' => 'midweek',       'present' => 147, 'absent' =>  41, 'excused' =>  5, 'visitors' =>  3, 'expected' => 193, 'offering' =>  238.00, 'by' => 'Simba Dube',    'preacher' => 'Grace Chikomo',       'theme' => 'Acts 5 — Nothing can stop it',        'start' => '17:30', 'end' => '19:00', 'weather' => 'Clear'],
+    ['id' => 302, 'weeks_ago' =>  9, 'service' => 'cell',          'present' =>  22, 'absent' =>  10, 'excused' =>  1, 'visitors' =>  1, 'expected' =>  33, 'offering' =>   31.00, 'by' => 'Rudo Chirwa',   'preacher' => 'Rudo Chirwa',         'theme' => 'Carrying one another',                'start' => '18:00', 'end' => '19:30', 'weather' => 'Cloudy'],
+    ['id' => 301, 'weeks_ago' => 11, 'service' => 'special',       'present' => 508, 'absent' =>  46, 'excused' =>  9, 'visitors' => 62, 'expected' => 563, 'offering' => 2418.00, 'by' => 'Tendai Marufu', 'preacher' => 'Bishop S. Mutendi',   'theme' => 'Ordination Service',                  'start' => '09:00', 'end' => '13:00', 'weather' => 'Clear'],
+];
+
+/* One row per member: how they have actually behaved over the period above.
+   Keyed by the member id in $members_demo, so the two never drift apart.
+   `of` is the number of services that member was expected at — a youth is not
+   marked down for missing the women's midweek.
+   LATER: a GROUP BY over attendance_marks, or a nightly rollup table.  */
+$attendance_by_member_demo = [
+    1  => ['attended' => 19, 'of' => 24, 'last_days' =>  3, 'streak' => 6, 'trend' =>  4],
+    2  => ['attended' => 23, 'of' => 24, 'last_days' =>  3, 'streak' => 14, 'trend' =>  2],
+    3  => ['attended' =>  6, 'of' => 24, 'last_days' => 47, 'streak' => 0, 'trend' => -18],
+    4  => ['attended' => 17, 'of' => 22, 'last_days' =>  5, 'streak' => 3, 'trend' => -3],
+    5  => ['attended' => 21, 'of' => 24, 'last_days' =>  3, 'streak' => 9, 'trend' =>  6],
+    6  => ['attended' => 11, 'of' => 24, 'last_days' => 12, 'streak' => 1, 'trend' => -9],
+    7  => ['attended' => 24, 'of' => 24, 'last_days' =>  3, 'streak' => 24, 'trend' =>  1],
+    8  => ['attended' =>  3, 'of' => 20, 'last_days' => 68, 'streak' => 0, 'trend' => -22],
+    9  => ['attended' => 18, 'of' => 24, 'last_days' =>  7, 'streak' => 5, 'trend' =>  3],
+    10 => ['attended' => 15, 'of' => 24, 'last_days' =>  7, 'streak' => 2, 'trend' => -5],
+    11 => ['attended' => 22, 'of' => 24, 'last_days' =>  3, 'streak' => 11, 'trend' =>  5],
+    12 => ['attended' =>  8, 'of' => 24, 'last_days' => 34, 'streak' => 0, 'trend' => -14],
+    13 => ['attended' => 20, 'of' => 24, 'last_days' =>  5, 'streak' => 7, 'trend' =>  2],
+    14 => ['attended' => 13, 'of' => 22, 'last_days' =>  9, 'streak' => 1, 'trend' => -7],
+    15 => ['attended' => 23, 'of' => 24, 'last_days' =>  3, 'streak' => 16, 'trend' =>  3],
+    16 => ['attended' =>  9, 'of' => 24, 'last_days' => 31, 'streak' => 0, 'trend' => -11],
+    17 => ['attended' => 16, 'of' => 24, 'last_days' =>  7, 'streak' => 4, 'trend' => -2],
+    18 => ['attended' => 21, 'of' => 24, 'last_days' =>  3, 'streak' => 8, 'trend' =>  7],
+    19 => ['attended' =>  4, 'of' => 24, 'last_days' => 92, 'streak' => 0, 'trend' => -16],
+    20 => ['attended' => 18, 'of' => 22, 'last_days' =>  5, 'streak' => 5, 'trend' =>  1],
+];
+
+/* Services the calendar expected but no register was ever taken for. The one
+   figure on this page that is a genuine gap rather than a low number.
+   LATER: the service schedule LEFT JOINed to registers, WHERE r.id IS NULL. */
+$attendance_missing_demo = [
+    ['weeks_ago' => 0, 'service' => 'cell',          'note' => 'No register taken'],
+    ['weeks_ago' => 0, 'service' => 'youth',         'note' => 'No register taken'],
+    ['weeks_ago' => 2, 'service' => 'prayer',        'note' => 'Draft never submitted'],
+    ['weeks_ago' => 4, 'service' => 'sunday-first',  'note' => 'No register taken'],
+];
+
+/* Members the register itself flags. `reason` is what the page shows; the
+   rule that produced it lives in the query, not in the view.
+   LATER: WHERE last_attended < NOW() - INTERVAL 30 DAY OR rate_delta < -15. */
+$attendance_at_risk_demo = [
+    ['member_id' => 19, 'reason' => 'Not seen in 3 months'],
+    ['member_id' =>  8, 'reason' => 'Not seen in 2 months'],
+    ['member_id' =>  3, 'reason' => 'Attendance down 18 points'],
+    ['member_id' => 12, 'reason' => 'Not seen in 30+ days'],
+    ['member_id' => 16, 'reason' => 'Not seen in 30+ days'],
+];
+
+/* Headline figures for the register's stat strip. Kept apart from the rows
+   for the same reason $people_stats is: in production these are aggregates
+   over the whole table, not over the page.
+   LATER: one SELECT per figure, scoped to :church_id and :branch_id. */
+$attendance_stats = [
+    'services_month' => 9,
+    'average'        => 248,
+    'highest'        => 612,
+    'highest_days'   => 26,
+    'rate'           => 78,
+];
+
+/* ==========================================================================
+   13d. ATTENDANCE REPORTS
+   What attendance/reports.php charts. Every figure here is an aggregate that
+   a real deployment computes in SQL; the shapes match what those queries
+   would return, so the page's rendering code does not change later.
+   ========================================================================== */
+
+/* Twelve months of attendance, split by service type. `markers` names the
+   months a special service landed in — the trend chart annotates those.
+   LATER: SELECT DATE_FORMAT(service_date,'%b'), service_type_id, AVG(present)
+            FROM attendance_registers WHERE ... GROUP BY 1, 2; */
+$attendance_trend_demo = [
+    'labels' => ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+    'series' => [
+        'Sunday Services' => [688, 702, 719, 806, 744, 731, 758, 772, 749, 738, 761, 749],
+        'Midweek'         => [141, 148, 152, 168, 159, 146, 155, 162, 151, 144, 158, 152],
+        'Prayer'          => [ 62,  68,  71,  84,  77,  64,  69,  73,  66,  58,  64,  71],
+        'Youth'           => [118, 126, 133, 151, 139, 128, 136, 144, 131, 121, 128, 144],
+        'Cell'            => [ 24,  25,  27,  31,  29,  26,  28,  29,  27,  22,  26,  26],
+    ],
+    'markers' => [3 => 'Carol Service', 7 => 'Easter Convention', 11 => 'Diocesan Convention'],
+];
+
+/* Average attendance per service, for the horizontal bar chart.
+   LATER: AVG(present) GROUP BY service_type_id. */
+$attendance_by_service_demo = [
+    'Communion Service'     => 441, 'Sunday Second Service' => 418, 'Sunday First Service' => 331,
+    'Midweek Service'       => 152, 'Sunday School'         => 142, 'Youth Service'        => 133,
+    'Overnight Prayer'      => 118, "Women's Fellowship"    => 108, "Men's Fellowship"     =>  74,
+    'Baptism Service'       =>  68, 'Friday Prayer Meeting' =>  64, 'Cell Meetings'        =>  26,
+];
+
+/* Which days actually fill the building.
+   LATER: AVG(present) GROUP BY DAYOFWEEK(service_date). */
+$attendance_by_dow_demo = [
+    'Monday' => 0, 'Tuesday' => 26, 'Wednesday' => 152, 'Thursday' => 108,
+    'Friday' => 91, 'Saturday' => 104, 'Sunday' => 297,
+];
+
+/* Who is in the room. LATER: GROUP BY members.age_band, members.gender. */
+$attendance_demographics_demo = ['Men' => 289, 'Women' => 412, 'Youth' => 198, 'Children' => 164];
+
+/* How the roll spreads across the rate bands the register already defines.
+   LATER: COUNT(*) GROUP BY the CASE that produces the band. */
+$attendance_rate_bands_demo = [
+    '0-20%' => 74, '21-40%' => 118, '41-60%' => 246, '61-80%' => 418, '81-100%' => 428,
+];
+
+/* The visitor funnel. LATER: three COUNTs over visitors joined to members. */
+$attendance_funnel_demo = [
+    ['label' => 'Visited',  'value' => 218, 'note' => 'first-time visitors'],
+    ['label' => 'Returned', 'value' =>  96, 'note' => 'came back at least once'],
+    ['label' => 'Joined',   'value' =>  41, 'note' => 'became members'],
+];
+
+/* This year against last, same twelve months.
+   LATER: two aggregates over different YEAR() windows. */
+$attendance_yoy_demo = [
+    'labels'    => ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+    'this_year' => [688, 702, 719, 806, 744, 731, 758, 772, 749, 738, 761, 749],
+    'last_year' => [641, 656, 663, 771, 698, 674, 702, 716, 688, 671, 694, 702],
+];
+
+/* Is attendance keeping pace with the roll? Two axes deliberately — the
+   scales are an order of magnitude apart and sharing one hides the story.
+   LATER: monthly COUNT(members) beside monthly AVG(present). */
+$attendance_vs_membership_demo = [
+    'labels'     => ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+    'attendance' => [688, 702, 719, 806, 744, 731, 758, 772, 749, 738, 761, 749],
+    'membership' => [1188, 1201, 1214, 1228, 1241, 1249, 1258, 1264, 1271, 1276, 1280, 1284],
+];
+
+/* Months down, weeks across. The June dip and the December peak are the two
+   patterns this grid exists to make visible. A zero is a week with no service.
+   LATER: AVG(present) GROUP BY MONTH(), WEEK(). */
+$attendance_seasonal_demo = [
+    'Sep' => [672, 688, 701, 691], 'Oct' => [694, 702, 716, 698],
+    'Nov' => [708, 719, 731, 718], 'Dec' => [744, 806, 892, 703],
+    'Jan' => [681, 744, 758, 751], 'Feb' => [726, 731, 742, 728],
+    'Mar' => [748, 758, 766, 759], 'Apr' => [761, 772, 818, 764],
+    'May' => [744, 749, 756, 748], 'Jun' => [721, 738, 742, 733],
+    'Jul' => [752, 761, 768, 758], 'Aug' => [741, 749, 756, 0],
+];
+
+/* Of the members who joined in a given month, what share still attend at
+   three, six and twelve months. Null where the cohort is too young to say.
+   LATER: a self-join between members.joined_at and attendance_marks. */
+$attendance_cohorts_demo = [
+    ['month' => 'Sep', 'joined' => 34, 'm3' => 88,   'm6' => 79,   'm12' => 71],
+    ['month' => 'Oct', 'joined' => 28, 'm3' => 86,   'm6' => 75,   'm12' => 68],
+    ['month' => 'Nov', 'joined' => 41, 'm3' => 90,   'm6' => 81,   'm12' => 74],
+    ['month' => 'Dec', 'joined' => 62, 'm3' => 74,   'm6' => 61,   'm12' => 52],
+    ['month' => 'Jan', 'joined' => 47, 'm3' => 91,   'm6' => 83,   'm12' => null],
+    ['month' => 'Feb', 'joined' => 31, 'm3' => 87,   'm6' => 78,   'm12' => null],
+    ['month' => 'Mar', 'joined' => 26, 'm3' => 89,   'm6' => 80,   'm12' => null],
+    ['month' => 'Apr', 'joined' => 38, 'm3' => 85,   'm6' => 76,   'm12' => null],
+    ['month' => 'May', 'joined' => 22, 'm3' => 92,   'm6' => null, 'm12' => null],
+    ['month' => 'Jun', 'joined' => 19, 'm3' => 84,   'm6' => null, 'm12' => null],
+    ['month' => 'Jul', 'joined' => 24, 'm3' => null, 'm6' => null, 'm12' => null],
+    ['month' => 'Aug', 'joined' => 12, 'm3' => null, 'm6' => null, 'm12' => null],
+];
+
+/* Six months forward with the band the estimate sits inside. It is a
+   straight-line projection, not a forecast, and the page says so wherever it
+   appears. */
+$attendance_projection_demo = [
+    'labels' => ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'],
+    'mid'    => [764, 771, 779, 848, 786, 794],
+    'low'    => [712, 714, 718, 776, 715, 719],
+    'high'   => [816, 828, 840, 920, 857, 869],
+];
+
+/* The comparison tables and the leaderboard, one block per grouping.
+   `months` is that group's twelve-month series for the grouped bar chart.
+   LATER: the same aggregate, GROUP BY whichever dimension is selected. */
+$attendance_groups_demo = [
+    'Department' => [
+        ['name' => 'Ushering',            'members' => 46, 'avg' => 41, 'rate' => 89, 'trend' =>  4, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [36, 38, 40, 44, 41, 39, 42, 43, 40, 37, 41, 41]],
+        ['name' => 'Choir',               'members' => 62, 'avg' => 53, 'rate' => 85, 'trend' =>  2, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [47, 49, 51, 58, 54, 50, 53, 55, 52, 46, 51, 53]],
+        ['name' => 'Praise & Worship',    'members' => 38, 'avg' => 33, 'rate' => 87, 'trend' =>  6, 'best' => 'Apr', 'worst' => 'Jun', 'months' => [28, 30, 31, 35, 33, 31, 34, 36, 33, 29, 32, 33]],
+        ['name' => 'Youth Ministry',      'members' => 84, 'avg' => 58, 'rate' => 69, 'trend' => -3, 'best' => 'Dec', 'worst' => 'Jul', 'months' => [56, 59, 62, 71, 64, 58, 61, 63, 57, 52, 55, 58]],
+        ['name' => "Women's Fellowship",  'members' => 96, 'avg' => 71, 'rate' => 74, 'trend' =>  1, 'best' => 'Mar', 'worst' => 'Jun', 'months' => [64, 68, 70, 78, 73, 69, 74, 75, 71, 63, 69, 71]],
+        ['name' => "Men's Fellowship",    'members' => 71, 'avg' => 42, 'rate' => 59, 'trend' => -6, 'best' => 'Dec', 'worst' => 'Jul', 'months' => [46, 47, 48, 54, 49, 44, 45, 44, 41, 38, 40, 42]],
+        ['name' => "Children's Ministry", 'members' => 58, 'avg' => 49, 'rate' => 84, 'trend' =>  3, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [43, 45, 47, 53, 50, 47, 49, 51, 48, 43, 47, 49]],
+        ['name' => 'Media & Sound',       'members' => 24, 'avg' => 21, 'rate' => 88, 'trend' =>  0, 'best' => 'Apr', 'worst' => 'Jun', 'months' => [19, 20, 21, 23, 22, 20, 21, 22, 21, 18, 20, 21]],
+        ['name' => 'Intercession',        'members' => 33, 'avg' => 19, 'rate' => 58, 'trend' => -8, 'best' => 'Nov', 'worst' => 'Aug', 'months' => [23, 24, 25, 26, 23, 21, 22, 21, 20, 18, 19, 19]],
+        ['name' => 'Protocol',            'members' => 29, 'avg' => 24, 'rate' => 83, 'trend' =>  2, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [21, 22, 23, 26, 24, 23, 24, 25, 23, 21, 23, 24]],
+    ],
+    'Cell Group' => [
+        ['name' => 'Westgate Cell',    'members' => 34, 'avg' => 28, 'rate' => 82, 'trend' =>  5, 'best' => 'Apr', 'worst' => 'Jun', 'months' => [24, 25, 26, 30, 28, 26, 28, 30, 27, 24, 27, 28]],
+        ['name' => 'Borrowdale Cell',  'members' => 29, 'avg' => 24, 'rate' => 83, 'trend' =>  3, 'best' => 'Dec', 'worst' => 'Jul', 'months' => [21, 22, 23, 27, 25, 23, 24, 25, 23, 21, 22, 24]],
+        ['name' => 'Chitungwiza Cell', 'members' => 41, 'avg' => 27, 'rate' => 66, 'trend' => -4, 'best' => 'Dec', 'worst' => 'Aug', 'months' => [29, 30, 31, 34, 31, 28, 29, 29, 27, 25, 26, 27]],
+        ['name' => 'Avondale Cell',    'members' => 26, 'avg' => 22, 'rate' => 85, 'trend' =>  2, 'best' => 'Mar', 'worst' => 'Jun', 'months' => [19, 20, 21, 24, 22, 21, 23, 23, 22, 19, 21, 22]],
+        ['name' => 'Highfield Cell',   'members' => 38, 'avg' => 21, 'rate' => 55, 'trend' => -9, 'best' => 'Nov', 'worst' => 'Aug', 'months' => [26, 27, 28, 29, 26, 24, 24, 23, 22, 20, 21, 21]],
+        ['name' => 'Waterfalls Cell',  'members' => 31, 'avg' => 25, 'rate' => 81, 'trend' =>  1, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [22, 23, 24, 28, 26, 24, 25, 26, 24, 22, 24, 25]],
+        ['name' => 'Glen View Cell',   'members' => 27, 'avg' => 18, 'rate' => 67, 'trend' => -2, 'best' => 'Dec', 'worst' => 'Jul', 'months' => [19, 20, 20, 23, 21, 19, 20, 20, 18, 17, 18, 18]],
+        ['name' => 'Mabelreign Cell',  'members' => 23, 'avg' => 20, 'rate' => 87, 'trend' =>  4, 'best' => 'Apr', 'worst' => 'Jun', 'months' => [17, 18, 19, 21, 20, 19, 20, 21, 20, 17, 19, 20]],
+    ],
+    'Age Group' => [
+        ['name' => 'Children (0-12)', 'members' => 268, 'avg' => 164, 'rate' => 61, 'trend' => -2, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [151, 156, 161, 189, 168, 158, 163, 167, 160, 148, 158, 164]],
+        ['name' => 'Youth (13-24)',   'members' => 312, 'avg' => 198, 'rate' => 63, 'trend' =>  4, 'best' => 'Apr', 'worst' => 'Jul', 'months' => [176, 182, 189, 214, 196, 186, 193, 201, 191, 178, 188, 198]],
+        ['name' => 'Adults (25-59)',  'members' => 594, 'avg' => 448, 'rate' => 75, 'trend' =>  2, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [411, 421, 432, 478, 442, 428, 441, 452, 439, 418, 437, 448]],
+        ['name' => 'Seniors (60+)',   'members' => 110, 'avg' =>  91, 'rate' => 83, 'trend' =>  1, 'best' => 'Mar', 'worst' => 'Jun', 'months' => [ 84,  86,  88,  96,  91,  88,  92,  93,  90,  83,  89,  91]],
+    ],
+    'Gender' => [
+        ['name' => 'Women', 'members' => 704, 'avg' => 412, 'rate' => 59, 'trend' =>  3, 'best' => 'Dec', 'worst' => 'Jun', 'months' => [378, 387, 396, 441, 408, 394, 404, 414, 401, 382, 399, 412]],
+        ['name' => 'Men',   'members' => 580, 'avg' => 289, 'rate' => 50, 'trend' => -1, 'best' => 'Dec', 'worst' => 'Jul', 'months' => [271, 277, 283, 318, 292, 281, 288, 293, 284, 268, 279, 289]],
+    ],
+];
+
+/* Longest unbroken run of services attended, per member id. The register
+   carries the current streak; this is the record.
+   LATER: the window function that produces it. */
+$attendance_longest_streak_demo = [
+    1 => 11, 2 => 19, 3 => 7, 4 => 9, 5 => 14, 6 => 6, 7 => 24, 8 => 5, 9 => 12, 10 => 8,
+    11 => 16, 12 => 7, 13 => 13, 14 => 6, 15 => 21, 16 => 5, 17 => 10, 18 => 15, 19 => 4, 20 => 11,
+];
+
+/* The headline figures with the previous period beside them, so the strip can
+   show a direction rather than a bare number.
+   LATER: the same aggregate run twice, over two windows. */
+$attendance_report_stats = [
+    'average'  => ['now' => 749,  'prev' => 702],
+    'rate'     => ['now' => 78,   'prev' => 74],
+    'services' => ['now' => 96,   'prev' => 92],
+    'growth'   => ['now' => 6.7,  'prev' => 4.1],
+];
+
+/* ==========================================================================
+   13e. FINANCE — CURRENCIES, CONTRIBUTION TYPES, PAYMENT METHODS
+   What finance/record.php captures against. Zimbabwe runs multi-currency in
+   practice, so every amount carries its own currency and the USD equivalent
+   is shown beside it rather than the figure being silently converted.
+   ========================================================================== */
+
+/* Exactly one currency has is_default = true; it is the one every total is
+   expressed in. `exchange_rate_to_usd` multiplies an amount to reach USD.
+   LATER: SELECT code, symbol, name, is_default, rate_to_usd FROM currencies
+           WHERE church_id = :church_id AND active = 1 ORDER BY is_default DESC; */
+$currencies = [
+    ['code' => 'USD', 'symbol' => '$',   'name' => 'US Dollar',        'is_default' => true,  'exchange_rate_to_usd' => 1.0],
+    ['code' => 'ZWG', 'symbol' => 'ZWG', 'name' => 'Zimbabwe Gold',    'is_default' => false, 'exchange_rate_to_usd' => 0.0372],
+    ['code' => 'ZAR', 'symbol' => 'R',   'name' => 'South African Rand','is_default' => false, 'exchange_rate_to_usd' => 0.0545],
+    ['code' => 'GBP', 'symbol' => '£',   'name' => 'Pound Sterling',   'is_default' => false, 'exchange_rate_to_usd' => 1.27],
+];
+
+/* `requires_member` is the rule the form enforces: a tithe or a pledge payment
+   has to be attributable to somebody, a loose offering does not.
+   LATER: SELECT * FROM contribution_types WHERE church_id = :church_id
+           AND active = 1 ORDER BY sort_order; */
+$contribution_types = [
+    ['key' => 'tithe',       'name' => 'Tithe',            'icon' => 'fa-hand-holding-dollar', 'colour' => '#662F97', 'requires_member' => true],
+    ['key' => 'offering',    'name' => 'Offering',         'icon' => 'fa-basket-shopping',     'colour' => '#8F5CC2', 'requires_member' => false],
+    ['key' => 'thanksgiving','name' => 'Thanksgiving',     'icon' => 'fa-hands-praying',       'colour' => '#B45309', 'requires_member' => false],
+    ['key' => 'building',    'name' => 'Building Fund',    'icon' => 'fa-trowel-bricks',       'colour' => '#0369A1', 'requires_member' => false],
+    ['key' => 'seed',        'name' => 'Seed',             'icon' => 'fa-seedling',            'colour' => '#15803D', 'requires_member' => false],
+    ['key' => 'pledge',      'name' => 'Pledge Payment',   'icon' => 'fa-file-signature',      'colour' => '#6D28D9', 'requires_member' => true],
+    ['key' => 'missions',    'name' => 'Missions',         'icon' => 'fa-earth-africa',        'colour' => '#0F766E', 'requires_member' => false],
+    ['key' => 'welfare',     'name' => 'Welfare',          'icon' => 'fa-heart',               'colour' => '#BE185D', 'requires_member' => false],
+    ['key' => 'special',     'name' => 'Special Offering', 'icon' => 'fa-star',                'colour' => '#CA8A04', 'requires_member' => false],
+    ['key' => 'firstfruits', 'name' => 'First Fruits',     'icon' => 'fa-wheat-awn',           'colour' => '#B4243F', 'requires_member' => true],
+];
+
+/* `needs_reference` drives the conditional reference field: a mobile-money or
+   bank payment has a transaction id worth capturing, cash does not.
+   LATER: SELECT * FROM payment_methods WHERE church_id = :church_id; */
+$payment_methods = [
+    ['key' => 'cash',     'name' => 'Cash',          'icon' => 'fa-money-bill-wave',   'needs_reference' => false],
+    ['key' => 'ecocash',  'name' => 'EcoCash',       'icon' => 'fa-mobile-screen',     'needs_reference' => true,  'ref_label' => 'EcoCash transaction reference'],
+    ['key' => 'zipit',    'name' => 'ZIPIT',         'icon' => 'fa-right-left',        'needs_reference' => true,  'ref_label' => 'ZIPIT reference'],
+    ['key' => 'bank',     'name' => 'Bank Transfer', 'icon' => 'fa-building-columns',  'needs_reference' => true,  'ref_label' => 'Bank reference'],
+    ['key' => 'swipe',    'name' => 'Swipe / POS',   'icon' => 'fa-credit-card',       'needs_reference' => false],
+    ['key' => 'cheque',   'name' => 'Cheque',        'icon' => 'fa-money-check',       'needs_reference' => true,  'ref_label' => 'Cheque number'],
+    ['key' => 'inkind',   'name' => 'In-Kind',       'icon' => 'fa-box-open',          'needs_reference' => false],
+];
+
+/* The notes and coins in circulation, for the cash-counting helper on the
+   Quick Totals tab. Value is in the currency's own units. */
+$cash_denominations = [
+    ['currency' => 'USD', 'value' => 100, 'label' => '$100'], ['currency' => 'USD', 'value' => 50, 'label' => '$50'],
+    ['currency' => 'USD', 'value' => 20,  'label' => '$20'],  ['currency' => 'USD', 'value' => 10, 'label' => '$10'],
+    ['currency' => 'USD', 'value' => 5,   'label' => '$5'],   ['currency' => 'USD', 'value' => 2,  'label' => '$2'],
+    ['currency' => 'USD', 'value' => 1,   'label' => '$1'],
+];
+
+/* Projects a contribution can be designated to. Shown only when the projects
+   module is on.
+   LATER: SELECT id, name, target, raised FROM projects
+           WHERE church_id = :church_id AND status = 'active'; */
+$projects_demo = [
+    ['id' => 1, 'name' => 'New Sanctuary Roof',      'target' => 25000, 'raised' => 18400],
+    ['id' => 2, 'name' => 'Borehole & Water Tank',   'target' =>  8000, 'raised' =>  6200],
+    ['id' => 3, 'name' => 'Youth Centre Furnishing', 'target' =>  5000, 'raised' =>  2150],
+    ['id' => 4, 'name' => 'Mission Vehicle Fund',    'target' => 32000, 'raised' =>  9750],
+];
+
+/* Contributions already captured today. The form checks a new entry against
+   these to warn about a possible duplicate — same member, same amount, same
+   date. It warns; it never blocks, because a member really can give twice.
+   LATER: SELECT member_id, amount, currency, received_on FROM contributions
+           WHERE church_id = :church_id AND received_on = :date; */
+$contributions_today_demo = [
+    ['member_id' => 2,  'member' => 'Denford Masuku', 'amount' => 50.00,  'currency' => 'USD', 'type' => 'tithe',    'ref' => 'MCP-C-4471'],
+    ['member_id' => 7,  'member' => 'Loveness Moyo',  'amount' => 120.00, 'currency' => 'USD', 'type' => 'tithe',    'ref' => 'MCP-C-4472'],
+    ['member_id' => 15, 'member' => 'Melody Sibanda', 'amount' => 850.00, 'currency' => 'ZWG', 'type' => 'offering', 'ref' => 'MCP-C-4473'],
+];
+
+/* ==========================================================================
+   13f. FINANCE — THE CONTRIBUTION LEDGER
+   What finance/contributions.php reads. Shapes match exactly what
+   finance/record.php captures, so a row saved there would slot straight in.
+   `days_ago` keeps the demo from going stale; `member_id` is null for an
+   anonymous gift.
+   LATER: SELECT c.*, m.name, m.member_no, u.name AS recorded_by
+            FROM contributions c
+            LEFT JOIN members m ON m.id = c.member_id
+            JOIN users u ON u.id = c.recorded_by_id
+           WHERE c.church_id = :church_id
+             AND (:branch_id IS NULL OR c.branch_id = :branch_id)
+             AND c.received_on BETWEEN :from AND :to
+        ORDER BY c.received_on DESC, c.id DESC;
+   ========================================================================== */
+$contributions_demo = [
+    ['id' => 4491, 'ref' => 'MCP-C-4491', 'days_ago' =>   1, 'time' => '10:42', 'member_id' =>  2, 'type' => 'tithe',       'amount' =>  120.00, 'currency' => 'USD', 'method' => 'ecocash', 'txn' => 'MP260827.1042.A88213', 'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Farai Nyoni',   'notes' => ''],
+    ['id' => 4490, 'ref' => 'MCP-C-4490', 'days_ago' =>   1, 'time' => '10:38', 'member_id' =>  7, 'type' => 'tithe',       'amount' =>  250.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'CBZ-9920-4471',        'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Farai Nyoni',   'notes' => ''],
+    ['id' => 4489, 'ref' => 'MCP-C-4489', 'days_ago' =>   1, 'time' => '10:31', 'member_id' => null,'type' => 'offering',   'amount' => 1840.00, 'currency' => 'ZWG', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Farai Nyoni',   'notes' => 'Loose plate collection'],
+    ['id' => 4488, 'ref' => 'MCP-C-4488', 'days_ago' =>   1, 'time' => '09:14', 'member_id' => 15, 'type' => 'building',    'amount' =>  500.00, 'currency' => 'USD', 'method' => 'swipe',   'txn' => '',                     'service' => 'Sunday First Service',  'project' => 1,    'by' => 'Tendai Marufu', 'notes' => 'Towards the roof'],
+    ['id' => 4487, 'ref' => 'MCP-C-4487', 'days_ago' =>   1, 'time' => '09:02', 'member_id' => 11, 'type' => 'thanksgiving','amount' =>   75.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday First Service',  'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4486, 'ref' => 'MCP-C-4486', 'days_ago' =>   1, 'time' => '08:55', 'member_id' => null,'type' => 'offering',   'amount' =>  310.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday First Service',  'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4485, 'ref' => 'MCP-C-4485', 'days_ago' =>   4, 'time' => '18:20', 'member_id' =>  5, 'type' => 'pledge',      'amount' =>  400.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'STANBIC-7741-2290',    'service' => 'Midweek Service',       'project' => 4,    'by' => 'Farai Nyoni',   'notes' => 'Second instalment'],
+    ['id' => 4484, 'ref' => 'MCP-C-4484', 'days_ago' =>   4, 'time' => '18:05', 'member_id' => 18, 'type' => 'seed',        'amount' =>   60.00, 'currency' => 'USD', 'method' => 'ecocash', 'txn' => 'MP260824.1805.B31907', 'service' => 'Midweek Service',       'project' => null, 'by' => 'Farai Nyoni',   'notes' => ''],
+    ['id' => 4483, 'ref' => 'MCP-C-4483', 'days_ago' =>   6, 'time' => '06:40', 'member_id' => 13, 'type' => 'tithe',       'amount' =>  180.00, 'currency' => 'USD', 'method' => 'zipit',   'txn' => 'ZIP-2260822-8841',     'service' => 'Friday Prayer Meeting', 'project' => null, 'by' => 'Farai Nyoni',   'notes' => ''],
+    ['id' => 4482, 'ref' => 'MCP-C-4482', 'days_ago' =>   8, 'time' => '11:10', 'member_id' =>  1, 'type' => 'tithe',       'amount' =>   95.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4481, 'ref' => 'MCP-C-4481', 'days_ago' =>   8, 'time' => '11:02', 'member_id' => 20, 'type' => 'missions',    'amount' =>  140.00, 'currency' => 'ZAR', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Tendai Marufu', 'notes' => 'Visitor from Polokwane'],
+    ['id' => 4480, 'ref' => 'MCP-C-4480', 'days_ago' =>   8, 'time' => '10:48', 'member_id' => null,'type' => 'offering',   'amount' => 2210.00, 'currency' => 'ZWG', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4479, 'ref' => 'MCP-C-4479', 'days_ago' =>  11, 'time' => '14:25', 'member_id' =>  9, 'type' => 'welfare',     'amount' =>   45.00, 'currency' => 'USD', 'method' => 'ecocash', 'txn' => 'MP260817.1425.C77420', 'service' => "Women's Fellowship",    'project' => null, 'by' => 'Grace Chikomo', 'notes' => 'For the Mhembere family'],
+    ['id' => 4478, 'ref' => 'MCP-C-4478', 'days_ago' =>  13, 'time' => '15:30', 'member_id' =>  4, 'type' => 'firstfruits', 'amount' =>  320.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'CBZ-9920-4102',        'service' => 'Youth Service',         'project' => null, 'by' => 'Farai Nyoni',   'notes' => ''],
+    ['id' => 4477, 'ref' => 'MCP-C-4477', 'days_ago' =>  15, 'time' => '10:55', 'member_id' => 16, 'type' => 'building',    'amount' =>  250.00, 'currency' => 'GBP', 'method' => 'bank',    'txn' => 'BARC-INT-33914',       'service' => 'Sunday Second Service', 'project' => 1,    'by' => 'Farai Nyoni',   'notes' => 'From the diaspora fund'],
+    ['id' => 4476, 'ref' => 'MCP-C-4476', 'days_ago' =>  15, 'time' => '10:40', 'member_id' =>  3, 'type' => 'tithe',       'amount' =>   80.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4475, 'ref' => 'MCP-C-4475', 'days_ago' =>  18, 'time' => '19:15', 'member_id' => 12, 'type' => 'special',     'amount' =>  650.00, 'currency' => 'ZWG', 'method' => 'inkind',  'txn' => '',                     'service' => 'Cell Meetings',         'project' => null, 'by' => 'Rudo Chirwa',   'notes' => '3 bags of maize meal, valued'],
+    ['id' => 4474, 'ref' => 'MCP-C-4474', 'days_ago' =>  22, 'time' => '10:20', 'member_id' =>  6, 'type' => 'offering',    'amount' =>   35.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday First Service',  'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4473, 'ref' => 'MCP-C-4473', 'days_ago' =>  22, 'time' => '10:05', 'member_id' => 10, 'type' => 'tithe',       'amount' =>  210.00, 'currency' => 'USD', 'method' => 'swipe',   'txn' => '',                     'service' => 'Sunday First Service',  'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+    ['id' => 4472, 'ref' => 'MCP-C-4472', 'days_ago' =>  29, 'time' => '11:35', 'member_id' => null,'type' => 'offering',   'amount' =>  425.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Communion Service',     'project' => null, 'by' => 'Farai Nyoni',   'notes' => 'Communion Sunday'],
+    ['id' => 4471, 'ref' => 'MCP-C-4471', 'days_ago' =>  36, 'time' => '09:50', 'member_id' => 17, 'type' => 'thanksgiving','amount' => 1500.00, 'currency' => 'ZWG', 'method' => 'cheque',  'txn' => 'CHQ-004182',           'service' => 'Sunday First Service',  'project' => null, 'by' => 'Farai Nyoni',   'notes' => ''],
+    ['id' => 4470, 'ref' => 'MCP-C-4470', 'days_ago' =>  43, 'time' => '10:15', 'member_id' =>  8, 'type' => 'pledge',      'amount' =>  200.00, 'currency' => 'USD', 'method' => 'zipit',   'txn' => 'ZIP-2260716-2204',     'service' => 'Sunday Second Service', 'project' => 2,    'by' => 'Farai Nyoni',   'notes' => 'Borehole pledge'],
+    ['id' => 4469, 'ref' => 'MCP-C-4469', 'days_ago' =>  51, 'time' => '14:00', 'member_id' => 19, 'type' => 'missions',    'amount' =>   90.00, 'currency' => 'USD', 'method' => 'ecocash', 'txn' => 'MP260708.1400.D11845', 'service' => 'Youth Service',         'project' => null, 'by' => 'Blessing Moyo', 'notes' => ''],
+    ['id' => 4468, 'ref' => 'MCP-C-4468', 'days_ago' =>  58, 'time' => '09:30', 'member_id' => null,'type' => 'offering',   'amount' =>  380.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Special Service',       'project' => null, 'by' => 'Tendai Marufu', 'notes' => 'Convention Sunday'],
+    ['id' => 4467, 'ref' => 'MCP-C-4467', 'days_ago' =>  72, 'time' => '10:45', 'member_id' => 14, 'type' => 'seed',        'amount' =>  110.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                     'service' => 'Sunday Second Service', 'project' => null, 'by' => 'Tendai Marufu', 'notes' => ''],
+];
+
+/* Twelve months of total receipts, in USD, for the giving-trend chart.
+   LATER: SELECT DATE_FORMAT(received_on,'%b'), SUM(amount * rate_to_usd)
+            FROM contributions WHERE ... GROUP BY 1; */
+$giving_trend_demo = [
+    'labels' => ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+    'totals' => [7420, 7860, 8140, 11280, 8940, 8310, 8720, 9410, 8880, 8260, 8990, 9340],
+];
+
+/* Six months per contribution type, for the sparkline on the By Type view.
+   Keyed by the same type keys record.php captures against.
+   LATER: the same aggregate, GROUP BY contribution_type_id, MONTH(). */
+$giving_by_type_spark_demo = [
+    'tithe'       => [3820, 3960, 4110, 3880, 4040, 4210],
+    'offering'    => [1940, 2080, 2010, 1870, 2140, 2260],
+    'thanksgiving'=> [ 620,  710,  680,  590,  740,  810],
+    'building'    => [ 880,  940, 1120,  980, 1060, 1240],
+    'seed'        => [ 310,  280,  340,  300,  360,  390],
+    'pledge'      => [ 540,  600,  580,  620,  660,  700],
+    'missions'    => [ 220,  260,  240,  280,  300,  320],
+    'welfare'     => [ 140,  160,  180,  150,  170,  190],
+    'special'     => [ 380,  420,  460,  510,  440,  480],
+    'firstfruits' => [ 260,  300,  280,  320,  340,  360],
+];
+
+/* How many of the last twelve months each member gave in, for the consistency
+   bar on the By Member view. Keyed by member id.
+   LATER: COUNT(DISTINCT MONTH(received_on)) over the last 12 months. */
+$giving_consistency_demo = [
+    1 => 9, 2 => 12, 3 => 4, 4 => 8, 5 => 11, 6 => 5, 7 => 12, 8 => 3, 9 => 7, 10 => 6,
+    11 => 10, 12 => 4, 13 => 11, 14 => 5, 15 => 12, 16 => 6, 17 => 8, 18 => 9, 19 => 2, 20 => 7,
+];
+
+/* Headline figures with the previous period beside them, so the strip shows a
+   direction rather than a bare number. All in USD.
+   LATER: the same aggregate run twice, over two windows. */
+$contribution_stats = [
+    'month'      => ['now' => 9340,  'prev' => 8990],
+    'year'       => ['now' => 97550, 'prev' => 88420],
+    'per_service'=> ['now' => 486,   'prev' => 452],
+    'givers'     => ['now' => 318,   'prev' => 296],
+];
+
+/* ==========================================================================
    14. DEMO ONLY — REMOVE BEFORE PRODUCTION
    The role sets behind the floating role switcher. Hardcoded stand-ins for
    what a real session would carry, kept here so every page shares one
@@ -3287,32 +4057,37 @@ $demo_roles = [
     'church_admin' => [
         'user'    => ['name' => 'Tendai Marufu', 'role' => 'church_admin', 'role_label' => 'Church Administrator', 'initials' => 'TM', 'email' => 'tendai@mutendicentral.co.zw'],
         'perms'   => ['members.view', 'members.add', 'members.edit', 'members.delete', 'members.export',
-                      'finance.view', 'finance.add', 'finance.reports', 'payroll.view', 'settings.manage'],
+                      'finance.view', 'finance.add', 'finance.edit', 'finance.delete', 'finance.reports', 'payroll.view', 'settings.manage',
+                      'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports', 'attendance.manage',
+                      'branches.add', 'branches.edit', 'reports.view'],
         'modules' => array_merge($demo_core_modules, ['finance', 'cell_groups', 'events', 'sermons', 'payroll', 'visitors', 'projects']),
     ],
     'pastor' => [
         'user'    => ['name' => 'Rev. Enock Sithole', 'role' => 'pastor', 'role_label' => 'Pastor', 'initials' => 'ES', 'email' => 'enock@mutendicentral.co.zw'],
-        'perms'   => ['members.view', 'members.add', 'members.edit', 'members.export', 'finance.view', 'finance.reports'],
+        'perms'   => ['members.view', 'members.add', 'members.edit', 'members.export', 'finance.view', 'finance.reports', 'reports.view',
+                      'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports', 'attendance.manage'],
         'modules' => array_merge($demo_core_modules, ['finance', 'cell_groups', 'events', 'sermons', 'visitors', 'projects']),
     ],
     'secretary' => [
         'user'    => ['name' => 'Grace Chikomo', 'role' => 'secretary', 'role_label' => 'Church Secretary', 'initials' => 'GC', 'email' => 'grace@mutendicentral.co.zw'],
-        'perms'   => ['members.view', 'members.add', 'members.edit', 'members.export'],
+        'perms'   => ['members.view', 'members.add', 'members.edit', 'members.export',
+                      'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports'],
         'modules' => array_merge($demo_core_modules, ['events', 'visitors', 'cell_groups', 'sermons']),
     ],
     'treasurer' => [
         'user'    => ['name' => 'Farai Nyoni', 'role' => 'treasurer', 'role_label' => 'Treasurer', 'initials' => 'FN', 'email' => 'farai@mutendicentral.co.zw'],
-        'perms'   => ['members.view', 'finance.view', 'finance.add', 'finance.reports'],
+        'perms'   => ['members.view', 'finance.view', 'finance.add', 'finance.edit', 'finance.reports', 'reports.view',
+                      'attendance.view'],
         'modules' => array_merge($demo_core_modules, ['finance', 'projects']),
     ],
     'dept_head' => [
         'user'    => ['name' => 'Blessing Moyo', 'role' => 'dept_head', 'role_label' => 'Department Head', 'initials' => 'BM', 'email' => 'blessing@mutendicentral.co.zw'],
-        'perms'   => ['members.view'],
+        'perms'   => ['members.view', 'attendance.view'],
         'modules' => array_merge($demo_core_modules, ['events', 'cell_groups']),
     ],
     'cell_leader' => [
         'user'    => ['name' => 'Rudo Chirwa', 'role' => 'cell_leader', 'role_label' => 'Cell Group Leader', 'initials' => 'RC', 'email' => 'rudo@mutendicentral.co.zw'],
-        'perms'   => ['members.view'],
+        'perms'   => ['members.view', 'attendance.view', 'attendance.add'],
         'modules' => array_merge($demo_core_modules, ['cell_groups']),
         /* Which cell this leader actually leads — the cells page renders as a
            single detail view for them rather than the full directory. */
@@ -3320,7 +4095,352 @@ $demo_roles = [
     ],
     'usher' => [
         'user'    => ['name' => 'Simba Dube', 'role' => 'usher', 'role_label' => 'Usher', 'initials' => 'SD', 'email' => 'simba@mutendicentral.co.zw'],
-        'perms'   => [],
+        'perms'   => ['attendance.view', 'attendance.add'],
         'modules' => array_merge($demo_core_modules, ['visitors']),
     ],
 ];
+
+/* ==========================================================================
+   15. THE ORGANISATION (TENANT)
+   A client is either a single independent church or an organisation with many
+   local churches under one head office. Both run on the same code: nothing
+   below is duplicated per client type, and no page forks on it — pages ask
+   is_multi_branch() and read their labels from $terminology.
+   LATER: SELECT * FROM organisations WHERE id = :org_id;
+   ========================================================================== */
+
+$organisation = [
+    'name'              => 'Diocese of Harare',
+    'code'              => 'DOH-001',
+    'logo'              => $root_url . '/resources/img/logo.png',
+
+    /* 'single'      — one independent church, no branch layer
+       'multi_branch'— head office with local churches beneath it */
+    'type'              => 'multi_branch',
+
+    'account_type'      => 'paying',            /* 'trial' | 'paying' */
+    'expiry_date'       => '2027-03-31',
+    'days_remaining'    => 217,
+
+    'total_branches'    => 12,
+    'total_members'     => 4863,
+
+    'head_office_name'  => 'Diocesan Office, Harare',
+    'head_office_address' => '14 Nelson Mandela Avenue, Harare',
+];
+
+/* ==========================================================================
+   16. TERMINOLOGY
+   Every user-facing label for the org/branch layer comes from here. A parish
+   is not a "branch" to an Anglican, and a society is not a "branch" to a
+   Methodist — so nothing in this system hardcodes the word. Later runs call
+   t('branch_plural') and get whatever this client calls them.
+   LATER: SELECT terminology_preset FROM organisations WHERE id = :org_id;
+   ========================================================================== */
+
+$terminology_presets = [
+
+    'anglican' => [
+        'org_singular'     => 'Diocese',
+        'org_plural'       => 'Dioceses',
+        'branch_singular'  => 'Parish',
+        'branch_plural'    => 'Parishes',
+        'leader_title'     => 'Priest',
+        'leader_plural'    => 'Priests',
+        'org_leader_title' => 'Bishop',
+        'group_singular'   => 'Archdeaconry',
+        'group_plural'     => 'Archdeaconries',
+    ],
+
+    'methodist' => [
+        'org_singular'     => 'Circuit',
+        'org_plural'       => 'Circuits',
+        'branch_singular'  => 'Society',
+        'branch_plural'    => 'Societies',
+        'leader_title'     => 'Minister',
+        'leader_plural'    => 'Ministers',
+        'org_leader_title' => 'Superintendent',
+        'group_singular'   => 'Section',
+        'group_plural'     => 'Sections',
+    ],
+
+    'pentecostal' => [
+        'org_singular'     => 'Headquarters',
+        'org_plural'       => 'Headquarters',
+        'branch_singular'  => 'Branch',
+        'branch_plural'    => 'Branches',
+        'leader_title'     => 'Pastor',
+        'leader_plural'    => 'Pastors',
+        'org_leader_title' => 'Overseer',
+        'group_singular'   => 'Region',
+        'group_plural'     => 'Regions',
+    ],
+
+    'generic' => [
+        'org_singular'     => 'Organisation',
+        'org_plural'       => 'Organisations',
+        'branch_singular'  => 'Branch',
+        'branch_plural'    => 'Branches',
+        'leader_title'     => 'Pastor',
+        'leader_plural'    => 'Pastors',
+        'org_leader_title' => 'Director',
+        'group_singular'   => 'Zone',
+        'group_plural'     => 'Zones',
+    ],
+];
+
+/* The one line that switches every label in the system. */
+$terminology_active = 'anglican';
+
+$terminology = $terminology_presets[$terminology_active] ?? $terminology_presets['generic'];
+
+/* ==========================================================================
+   17. BRANCHES
+   The local churches under the organisation, plus the head office itself.
+   Exactly one row is type 'head_office'; the rest are 'branch'. Grouped
+   across three archdeaconries (see $terminology['group_singular']).
+   Coordinates are real Harare-area positions so a later map view has
+   somewhere to put its pins.
+   LATER: SELECT b.*, COUNT(m.id) AS members_count
+          FROM branches b LEFT JOIN members m ON m.branch_id = b.id
+          WHERE b.org_id = :org_id GROUP BY b.id ORDER BY b.name;
+   ========================================================================== */
+
+$branches = [
+    [
+        'id' => 1, 'name' => 'St Mary\'s Cathedral', 'code' => 'DOH-HO-01',
+        'type' => 'head_office', 'group_name' => 'Harare Central Archdeaconry',
+        'leader_name' => 'Bishop Nathaniel Chikomo', 'leader_phone' => '+263 772 410 118',
+        'leader_email' => 'bishop@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '14 Nelson Mandela Avenue', 'suburb' => 'Harare CBD',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.8292, 'longitude' => 31.0522,
+        'members_count' => 842, 'avg_attendance' => 613, 'attendance_rate' => 73,
+        'monthly_giving' => 9840.00, 'growth_percent' => 4.2,
+        'established_date' => '1891-06-14', 'status' => 'active', 'last_activity' => '2026-08-25',
+    ],
+    [
+        'id' => 2, 'name' => 'St Michael\'s Mbare', 'code' => 'DOH-PR-02',
+        'type' => 'branch', 'group_name' => 'Harare Central Archdeaconry',
+        'leader_name' => 'Rev. Tapiwa Mudzingwa', 'leader_phone' => '+263 771 336 204',
+        'leader_email' => 'tapiwa.mudzingwa@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '58 Ardbennie Road', 'suburb' => 'Mbare',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.8611, 'longitude' => 31.0344,
+        'members_count' => 604, 'avg_attendance' => 452, 'attendance_rate' => 75,
+        'monthly_giving' => 3120.00, 'growth_percent' => 6.8,
+        'established_date' => '1954-03-21', 'status' => 'active', 'last_activity' => '2026-08-24',
+    ],
+    [
+        'id' => 3, 'name' => 'St Peter\'s Highfield', 'code' => 'DOH-PR-03',
+        'type' => 'branch', 'group_name' => 'Harare Central Archdeaconry',
+        'leader_name' => 'Rev. Grace Nyamande', 'leader_phone' => '+263 783 552 907',
+        'leader_email' => 'grace.nyamande@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '12 Willowvale Road', 'suburb' => 'Highfield',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.8847, 'longitude' => 30.9994,
+        'members_count' => 517, 'avg_attendance' => 361, 'attendance_rate' => 70,
+        'monthly_giving' => 2480.00, 'growth_percent' => 2.1,
+        'established_date' => '1961-09-08', 'status' => 'active', 'last_activity' => '2026-08-24',
+    ],
+    [
+        'id' => 4, 'name' => 'All Saints Braeside', 'code' => 'DOH-PR-04',
+        'type' => 'branch', 'group_name' => 'Harare Central Archdeaconry',
+        'leader_name' => 'Rev. Edmore Chuma', 'leader_phone' => '+263 712 884 663',
+        'leader_email' => 'edmore.chuma@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '3 Jameson Road', 'suburb' => 'Braeside',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.8489, 'longitude' => 31.0664,
+        'members_count' => 289, 'avg_attendance' => 198, 'attendance_rate' => 69,
+        'monthly_giving' => 1940.00, 'growth_percent' => -1.4,
+        'established_date' => '1972-11-02', 'status' => 'active', 'last_activity' => '2026-08-23',
+    ],
+    [
+        'id' => 5, 'name' => 'St Luke\'s Borrowdale', 'code' => 'DOH-PR-05',
+        'type' => 'branch', 'group_name' => 'Northern Archdeaconry',
+        'leader_name' => 'Rev. Patience Marimo', 'leader_phone' => '+263 774 201 559',
+        'leader_email' => 'patience.marimo@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '221 Borrowdale Road', 'suburb' => 'Borrowdale',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.7594, 'longitude' => 31.0872,
+        'members_count' => 471, 'avg_attendance' => 358, 'attendance_rate' => 76,
+        'monthly_giving' => 7260.00, 'growth_percent' => 8.3,
+        'established_date' => '1983-04-17', 'status' => 'active', 'last_activity' => '2026-08-25',
+    ],
+    [
+        'id' => 6, 'name' => 'St Andrew\'s Mount Pleasant', 'code' => 'DOH-PR-06',
+        'type' => 'branch', 'group_name' => 'Northern Archdeaconry',
+        'leader_name' => 'Rev. Lloyd Saruchera', 'leader_phone' => '+263 776 913 428',
+        'leader_email' => 'lloyd.saruchera@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '9 Sherwood Drive', 'suburb' => 'Mount Pleasant',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.7739, 'longitude' => 31.0503,
+        'members_count' => 366, 'avg_attendance' => 251, 'attendance_rate' => 69,
+        'monthly_giving' => 4880.00, 'growth_percent' => 3.6,
+        'established_date' => '1988-08-29', 'status' => 'active', 'last_activity' => '2026-08-22',
+    ],
+    [
+        'id' => 7, 'name' => 'Holy Trinity Chitungwiza', 'code' => 'DOH-PR-07',
+        'type' => 'branch', 'group_name' => 'Northern Archdeaconry',
+        'leader_name' => 'Rev. Nyasha Gwaze', 'leader_phone' => '+263 719 447 132',
+        'leader_email' => 'nyasha.gwaze@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '40 Seke Road', 'suburb' => 'Chitungwiza',
+        'city' => 'Chitungwiza', 'province' => 'Harare',
+        'latitude' => -18.0128, 'longitude' => 31.0756,
+        'members_count' => 628, 'avg_attendance' => 489, 'attendance_rate' => 78,
+        'monthly_giving' => 2760.00, 'growth_percent' => 9.1,
+        'established_date' => '1979-01-30', 'status' => 'active', 'last_activity' => '2026-08-25',
+    ],
+    [
+        'id' => 8, 'name' => 'St John\'s Norton', 'code' => 'DOH-PR-08',
+        'type' => 'branch', 'group_name' => 'Western Archdeaconry',
+        'leader_name' => 'Rev. Shepherd Mabhena', 'leader_phone' => '+263 782 660 741',
+        'leader_email' => 'shepherd.mabhena@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '7 Galloway Road', 'suburb' => 'Norton',
+        'city' => 'Norton', 'province' => 'Mashonaland West',
+        'latitude' => -17.8833, 'longitude' => 30.7000,
+        'members_count' => 341, 'avg_attendance' => 236, 'attendance_rate' => 69,
+        'monthly_giving' => 1620.00, 'growth_percent' => 5.4,
+        'established_date' => '1994-05-11', 'status' => 'active', 'last_activity' => '2026-08-21',
+    ],
+    [
+        'id' => 9, 'name' => 'St Francis Ruwa', 'code' => 'DOH-PR-09',
+        'type' => 'branch', 'group_name' => 'Western Archdeaconry',
+        'leader_name' => 'Rev. Charity Museka', 'leader_phone' => '+263 773 128 605',
+        'leader_email' => 'charity.museka@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '18 Chiremba Road', 'suburb' => 'Ruwa',
+        'city' => 'Ruwa', 'province' => 'Mashonaland East',
+        'latitude' => -17.8894, 'longitude' => 31.2431,
+        'members_count' => 254, 'avg_attendance' => 171, 'attendance_rate' => 67,
+        'monthly_giving' => 1180.00, 'growth_percent' => 7.7,
+        'established_date' => '2001-10-07', 'status' => 'active', 'last_activity' => '2026-08-20',
+    ],
+    [
+        'id' => 10, 'name' => 'St Stephen\'s Epworth', 'code' => 'DOH-PR-10',
+        'type' => 'branch', 'group_name' => 'Western Archdeaconry',
+        'leader_name' => 'Rev. Innocent Chidziva', 'leader_phone' => '+263 715 336 890',
+        'leader_email' => 'innocent.chidziva@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '22 Domboramwari Road', 'suburb' => 'Epworth',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.8942, 'longitude' => 31.1483,
+        'members_count' => 198, 'avg_attendance' => 124, 'attendance_rate' => 63,
+        'monthly_giving' => 720.00, 'growth_percent' => -3.8,
+        'established_date' => '2008-02-24', 'status' => 'inactive', 'last_activity' => '2026-06-14',
+    ],
+    [
+        'id' => 11, 'name' => 'St Barnabas Kuwadzana', 'code' => 'DOH-PR-11',
+        'type' => 'branch', 'group_name' => 'Western Archdeaconry',
+        'leader_name' => 'Rev. Wellington Bwanya', 'leader_phone' => '+263 778 052 316',
+        'leader_email' => 'wellington.bwanya@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => '31 Kuwadzana Way', 'suburb' => 'Kuwadzana',
+        'city' => 'Harare', 'province' => 'Harare',
+        'latitude' => -17.8256, 'longitude' => 30.9161,
+        'members_count' => 287, 'avg_attendance' => 205, 'attendance_rate' => 71,
+        'monthly_giving' => 1340.00, 'growth_percent' => 4.9,
+        'established_date' => '1998-07-19', 'status' => 'active', 'last_activity' => '2026-08-23',
+    ],
+    [
+        'id' => 12, 'name' => 'St Timothy\'s Domboshava', 'code' => 'DOH-PL-12',
+        'type' => 'branch', 'group_name' => 'Northern Archdeaconry',
+        'leader_name' => 'Rev. Talent Chigumba', 'leader_phone' => '+263 717 904 552',
+        'leader_email' => 'talent.chigumba@dioceseofharare.org.zw', 'leader_avatar' => null,
+        'address' => 'Plot 4, Domboshava Road', 'suburb' => 'Domboshava',
+        'city' => 'Goromonzi', 'province' => 'Mashonaland East',
+        'latitude' => -17.6244, 'longitude' => 31.1683,
+        'members_count' => 66, 'avg_attendance' => 48, 'attendance_rate' => 73,
+        'monthly_giving' => 280.00, 'growth_percent' => 22.4,
+        'established_date' => '2026-02-01', 'status' => 'planting', 'last_activity' => '2026-08-25',
+    ],
+];
+
+/* ==========================================================================
+   18. CURRENT BRANCH
+   Which branch the user is looking at: a branch id, or 'all' for the whole
+   organisation. A branch-scope user can never be looking at anything but
+   their own branch, so their scope decides it rather than the request.
+   ========================================================================== */
+
+$current_branch = ($user['scope'] ?? 'organisation') === 'branch'
+    ? ($user['branch_id'] ?? null)
+    : 'all';
+
+/* ==========================================================================
+   19. MULTI-BRANCH HELPERS
+   The only sanctioned way for a page to ask about the branch layer. Every
+   definition is guarded so a page that includes this file twice, or defines
+   its own copy, never collides.
+   ========================================================================== */
+
+if (!function_exists('is_multi_branch')) {
+    /** True when this tenant runs several churches under one head office. */
+    function is_multi_branch(): bool
+    {
+        global $organisation;
+        return ($organisation['type'] ?? 'single') === 'multi_branch';
+    }
+}
+
+if (!function_exists('can_see_branch')) {
+    /**
+     * Organisation-scope users see every branch. Branch-scope users see only
+     * their own — this is the single gate every later page should call before
+     * showing another branch's data.
+     */
+    function can_see_branch($branch_id): bool
+    {
+        global $user;
+        if (($user['scope'] ?? 'organisation') !== 'branch') { return true; }
+        return (int) $branch_id === (int) ($user['branch_id'] ?? 0);
+    }
+}
+
+if (!function_exists('get_branch')) {
+    /** One branch by id, or null when it does not exist. */
+    function get_branch($branch_id): ?array
+    {
+        global $branches;
+        foreach ($branches as $b) {
+            if ((int) $b['id'] === (int) $branch_id) { return $b; }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('get_visible_branches')) {
+    /** Only the branches the signed-in user is allowed to see. */
+    function get_visible_branches(): array
+    {
+        global $branches;
+        return array_values(array_filter($branches, static function ($b) {
+            return can_see_branch($b['id']);
+        }));
+    }
+}
+
+if (!function_exists('current_branch_name')) {
+    /**
+     * What to print in a header or a picker: the branch's own name, or
+     * "All Parishes" (whatever this client calls them) when viewing the lot.
+     */
+    function current_branch_name(): string
+    {
+        global $current_branch;
+        if ($current_branch === 'all' || $current_branch === null) {
+            return 'All ' . t('branch_plural');
+        }
+        $b = get_branch($current_branch);
+        return $b['name'] ?? ('All ' . t('branch_plural'));
+    }
+}
+
+if (!function_exists('t')) {
+    /**
+     * A label from the active terminology preset. Falls back to the key
+     * itself so a missing label is visible in the UI rather than blank.
+     */
+    function t(string $key): string
+    {
+        global $terminology;
+        return $terminology[$key] ?? $key;
+    }
+}

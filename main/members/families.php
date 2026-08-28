@@ -10,7 +10,9 @@ require __DIR__ . '/../includes/config.php';
 
 /* ══════════════ DEMO ONLY — REMOVE BEFORE PRODUCTION ══════════════ */
 $demo_role       = isset($_GET['role'], $demo_roles[$_GET['role']]) ? $_GET['role'] : 'church_admin';
-$user            = $demo_roles[$demo_role]['user'];
+/* array_merge, not assignment: the scope keys from config must survive
+   so a branch-scope user stays scoped on this page. */
+$user            = array_merge($user, $demo_roles[$demo_role]['user']);
 $permissions     = $demo_roles[$demo_role]['perms'];
 $enabled_modules = $demo_roles[$demo_role]['modules'];
 /* ═══════════════════════════ END DEMO ═══════════════════════════ */
@@ -44,7 +46,77 @@ function mu_cluster(array $members, int $max = 4, string $size = 'sm'): string {
 }
 
 $rows  = $households_demo;
+
+/* ─────────────────────────── BRANCH AWARENESS ───────────────────────────
+   Resolves which branch is in view (the top bar's switcher sets ?branch=) and
+   scopes this page's data to it. Every addition below is inert for a single
+   church: is_multi_branch() is false, so no column, chip, filter or toggle is
+   rendered and the page behaves exactly as it did before.
+   ──────────────────────────────────────────────────────────────────────── */
+require_once __DIR__ . '/../components/branch-switcher.php';
+
+$branch_aware   = is_multi_branch();
+$viewing_all    = !$branch_aware || $current_branch === 'all' || $current_branch === null;
+$show_branch    = $branch_aware && $viewing_all;      /* column, chip and filter */
+$branch_options = $branch_aware ? get_visible_branches() : [];
+
+if (!function_exists('mu_branch_for')) {
+    /**
+     * Which branch a demo record belongs to. Deterministic from the record's
+     * own key, so a person or a group never hops between branches on reload.
+     * LATER: the row carries its own branch_id and this helper disappears.
+     */
+    function mu_branch_for(string $key): ?array {
+        static $pool = null;
+        if ($pool === null) { $pool = get_visible_branches(); }
+        if (!$pool) { return null; }
+        return $pool[crc32($key) % count($pool)];
+    }
+
+    /** One colour per group, so branches in the same group read together. */
+    function mu_branch_tone(array $b): string {
+        static $tones = [];
+        static $pool = ['var(--info)', 'var(--brand-500)', '#0F766E', 'var(--warn)', '#6D28D9'];
+        $g = $b['group_name'] ?? '';
+        if (!isset($tones[$g])) { $tones[$g] = $pool[count($tones) % count($pool)]; }
+        return $tones[$g];
+    }
+
+    /** The small coloured chip naming a record's branch. */
+    function mu_branch_chip(?array $b): string {
+        if (!$b) { return ''; }
+        return '<span class="bchip" title="' . htmlspecialchars($b['name']) . '">'
+             . '<span class="bchip__dot" style="background:' . mu_branch_tone($b) . '" aria-hidden="true"></span>'
+             . htmlspecialchars($b['name']) . '</span>';
+    }
+
+    /**
+     * Scales an organisation-wide headline figure to the selected branch, by
+     * that branch's share of the roll.
+     * LATER: the figure arrives from a query already scoped to :branch_id.
+     */
+    function mu_branch_share($orgValue) {
+        global $current_branch, $organisation;
+        if ($current_branch === 'all' || $current_branch === null) { return $orgValue; }
+        $b = get_branch($current_branch);
+        if (!$b) { return $orgValue; }
+        $total = max(1, (int) ($organisation['total_members'] ?? 1));
+        return $orgValue * ((int) $b['members_count'] / $total);
+    }
+}
+
 $stats = $people_stats['households'];
+
+/* Scope the households and the headline figures to the branch in view. */
+if ($branch_aware) {
+    foreach ($rows as $i => $h) { $rows[$i]['_branch'] = mu_branch_for($h['name'] . $h['id']); }
+    if (!$viewing_all) {
+        $rows = array_values(array_filter($rows, function ($h) use ($current_branch) {
+            return $h['_branch'] && (int) $h['_branch']['id'] === (int) $current_branch;
+        }));
+    }
+    foreach ($stats as $k => $v) { $stats[$k] = $k === 'avg_size' ? $v : (int) round(mu_branch_share($v)); }
+}
 
 /* Members with no household yet — the actionable list at the foot of the page.
    LATER: SELECT * FROM members WHERE household_id IS NULL AND church_id = :church_id; */
@@ -141,6 +213,16 @@ require __DIR__ . '/../components/header.php';
           <?php foreach ($suburbs_demo as $s): ?><option><?= htmlspecialchars($s) ?></option><?php endforeach; ?>
         </select>
       </div>
+      <?php if ($show_branch): ?>
+        <div class="field">
+          <label for="fBranch"><?= htmlspecialchars(t('branch_singular')) ?></label>
+          <select class="select" id="fBranch" data-filter>
+            <option>All</option>
+            <?php foreach ($branch_options as $b): ?><option><?= htmlspecialchars($b['name']) ?></option><?php endforeach; ?>
+          </select>
+        </div>
+      <?php endif; ?>
+
       <?php if (mu_mod('cell_groups')): ?>
         <div class="field">
           <label for="fCell">Cell group</label>
@@ -187,7 +269,8 @@ require __DIR__ . '/../components/header.php';
                      data-size="<?= count($h['members']) ?>"
                      data-suburb="<?= htmlspecialchars($h['suburb']) ?>"
                      data-cell="<?= htmlspecialchars($h['cell_group']) ?>"
-                     data-kids="<?= $h['children'] > 0 ? 'Yes' : 'No' ?>">
+                     data-kids="<?= $h['children'] > 0 ? 'Yes' : 'No' ?>"
+                     <?= $branch_aware ? 'data-branch="' . htmlspecialchars($h['_branch']['name'] ?? '') . '"' : '' ?>>
               <h3 style="color:var(--ink);font-size:15px;font-weight:800;letter-spacing:-.02em"><?= htmlspecialchars($h['name']) ?></h3>
               <p style="margin-top:3px;color:var(--muted);font-size:12px">Head: <strong style="color:var(--ink-2)"><?= htmlspecialchars($h['head']) ?></strong></p>
 
@@ -203,6 +286,7 @@ require __DIR__ . '/../components/header.php';
                 <?= htmlspecialchars($h['address']) ?>, <?= htmlspecialchars($h['suburb']) ?>
               </p>
 
+              <?php if ($show_branch): ?><p style="margin-top:10px"><?= mu_branch_chip($h['_branch'] ?? null) ?></p><?php endif; ?>
               <?php if (mu_mod('cell_groups')): ?>
                 <p style="margin-top:10px"><span class="pill is-brand"><?= htmlspecialchars($h['cell_group']) ?></span></p>
               <?php endif; ?>
@@ -234,6 +318,7 @@ require __DIR__ . '/../components/header.php';
                 <th>Members</th>
                 <th>Adults / Children</th>
                 <th>Address</th>
+                <?php if ($show_branch): ?><th><?= htmlspecialchars(t('branch_singular')) ?></th><?php endif; ?>
                 <?php if (mu_mod('cell_groups')): ?><th>Cell Group</th><?php endif; ?>
                 <th>Created</th>
                 <th style="text-align:right">Actions</th>
@@ -246,7 +331,8 @@ require __DIR__ . '/../components/header.php';
                     data-size="<?= count($h['members']) ?>"
                     data-suburb="<?= htmlspecialchars($h['suburb']) ?>"
                     data-cell="<?= htmlspecialchars($h['cell_group']) ?>"
-                    data-kids="<?= $h['children'] > 0 ? 'Yes' : 'No' ?>">
+                    data-kids="<?= $h['children'] > 0 ? 'Yes' : 'No' ?>"
+                    <?= $branch_aware ? 'data-branch="' . htmlspecialchars($h['_branch']['name'] ?? '') . '"' : '' ?>>
                   <td><input class="check" type="checkbox" data-row-check aria-label="Select <?= htmlspecialchars($h['name']) ?>"></td>
                   <td class="num"><?= $i + 1 ?></td>
                   <td>
@@ -264,6 +350,7 @@ require __DIR__ . '/../components/header.php';
                   <td class="nowrap"><strong><?= count($h['members']) ?></strong></td>
                   <td class="nowrap"><?= (int) $h['adults'] ?> / <?= (int) $h['children'] ?></td>
                   <td class="nowrap"><?= htmlspecialchars($h['suburb']) ?><span class="tsub"><?= htmlspecialchars($h['city']) ?></span></td>
+                  <?php if ($show_branch): ?><td class="nowrap"><?= mu_branch_chip($h['_branch'] ?? null) ?></td><?php endif; ?>
                   <?php if (mu_mod('cell_groups')): ?><td class="nowrap"><?= htmlspecialchars($h['cell_group']) ?></td><?php endif; ?>
                   <td class="nowrap"><?= mu_date($h['created']) ?></td>
                   <td>
@@ -298,7 +385,8 @@ require __DIR__ . '/../components/header.php';
                      data-size="<?= count($h['members']) ?>"
                      data-suburb="<?= htmlspecialchars($h['suburb']) ?>"
                      data-cell="<?= htmlspecialchars($h['cell_group']) ?>"
-                     data-kids="<?= $h['children'] > 0 ? 'Yes' : 'No' ?>">
+                     data-kids="<?= $h['children'] > 0 ? 'Yes' : 'No' ?>"
+                     <?= $branch_aware ? 'data-branch="' . htmlspecialchars($h['_branch']['name'] ?? '') . '"' : '' ?>>
               <button class="pcard__main" type="button" data-card-toggle>
                 <?= mu_av($h['head'], 'md') ?>
                 <span class="pcard__text">
@@ -312,6 +400,7 @@ require __DIR__ . '/../components/header.php';
                   <div class="pcard__row"><dt>Head</dt><dd><?= htmlspecialchars($h['head']) ?></dd></div>
                   <div class="pcard__row"><dt>Phone</dt><dd><?= htmlspecialchars($h['head_phone']) ?></dd></div>
                   <div class="pcard__row"><dt>Adults / Children</dt><dd><?= (int) $h['adults'] ?> / <?= (int) $h['children'] ?></dd></div>
+                  <?php if ($show_branch): ?><div class="pcard__row"><dt><?= htmlspecialchars(t('branch_singular')) ?></dt><dd><?= htmlspecialchars($h['_branch']['name'] ?? '—') ?></dd></div><?php endif; ?>
                   <div class="pcard__row"><dt>Address</dt><dd><?= htmlspecialchars($h['address']) ?></dd></div>
                   <?php if (mu_mod('cell_groups')): ?><div class="pcard__row"><dt>Cell group</dt><dd><?= htmlspecialchars($h['cell_group']) ?></dd></div><?php endif; ?>
                 </dl>
@@ -622,7 +711,7 @@ require __DIR__ . '/../components/header.php';
 
   function apply() {
     var f = {};
-    ['fSize','fSuburb','fCell','fKids'].forEach(function (id) {
+    ['fSize','fSuburb','fCell','fKids'<?= $branch_aware ? ",'fBranch'" : '' ?>].forEach(function (id) {
       var el = document.getElementById(id);
       if (el && el.value !== 'All') { f[id] = el.value; }
     });
@@ -637,6 +726,8 @@ require __DIR__ . '/../components/header.php';
       if (ok && f.fSuburb && el.getAttribute('data-suburb') !== f.fSuburb) { ok = false; }
       if (ok && f.fCell && el.getAttribute('data-cell') !== f.fCell) { ok = false; }
       if (ok && f.fKids && el.getAttribute('data-kids') !== f.fKids) { ok = false; }
+<?php if ($branch_aware): ?>      if (ok && f.fBranch && el.getAttribute('data-branch') !== f.fBranch) { ok = false; }
+<?php endif; ?>
       el.hidden = !ok;
       if (ok && el.hasAttribute('data-row')) { shown++; }
     });

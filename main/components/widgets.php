@@ -40,13 +40,21 @@ if (!function_exists('main_widgets_for_role')) {
      * does not exist anywhere in this file — falls back to 'default', so an
      * unknown role still gets a complete, sensibly-ordered dashboard.
      */
-    function main_widgets_for_role(array $widgets, array $modules, array $perms, string $role): array
+    function main_widgets_for_role(array $widgets, array $modules, array $perms, string $role, bool $org_mode = false): array
     {
         $out = [];
         foreach ($widgets as $key => $w) {
             if (!main_allowed($w, $modules, $perms)) { continue; }
             if (in_array($role, $w['roles_hidden'] ?? [], true)) { continue; }
+            /* Organisation-level widgets exist only in organisation mode; in
+               every other mode they are absent, not hidden. */
+            if (!empty($w['org_only']) && !$org_mode) { continue; }
             $w['key']      = $key;
+            /* Organisation widgets carry a placeholder English title in the
+               registry; the client's own words come from $terminology, so an
+               Anglican diocese reads "Total Parishes", not "Total Branches".
+               Done here so the Customise modal gets the same labels. */
+            if (!empty($w['org_only'])) { $w['title'] = widget_org_title($key, $w['title']); }
             $w['_order']   = $w['priority'][$role] ?? $w['priority']['default'] ?? 999;
             $out[]         = $w;
         }
@@ -55,9 +63,28 @@ if (!function_exists('main_widgets_for_role')) {
     }
 }
 
-if (!function_exists('widget_category')) {
-    function widget_category(string $type): string
+if (!function_exists('widget_org_title')) {
+    /** The organisation widgets' titles, in this client's own terminology. */
+    function widget_org_title(string $key, string $fallback): string
     {
+        switch ($key) {
+            case 'total_branches':       return 'Total ' . t('branch_plural');
+            case 'org_attendance_total': return t('org_singular') . ' Attendance';
+            case 'org_giving_total':     return t('org_singular') . ' Giving';
+            case 'branch_comparison':    return t('branch_singular') . ' Comparison';
+            case 'branches_attention':   return t('branch_plural') . ' Needing Attention';
+            case 'branch_leaderboard':   return 'Fastest Growing';
+        }
+        return $fallback;
+    }
+}
+
+if (!function_exists('widget_category')) {
+    function widget_category(string $type, bool $org_only = false): string
+    {
+        /* Organisation widgets group under whatever this client calls its
+           organisation, so the Customise modal reads in their own language. */
+        if ($org_only) { return t('org_singular'); }
         return match ($type) {
             'kpi'                          => 'Key figures',
             'chart'                        => 'Charts',
@@ -534,6 +561,106 @@ if (!function_exists('widget_render_project_progress')) {
     }
 }
 
+/* ------------------------------------------------- organisation widgets -- */
+
+if (!function_exists('widget_render_branch_comparison')) {
+    /**
+     * One bar per branch, on a metric the user picks. The canvas carries the
+     * whole dataset so the dropdown can re-render without a round trip.
+     */
+    function widget_render_branch_comparison(array $d): void
+    {
+        if (empty($d['branches'])) { widget_empty('No ' . mb_strtolower(t('branch_plural')) . ' to compare'); return; }
+        ?>
+        <div class="orgwidget__bar">
+          <label class="orgwidget__label" for="cmpMetric">Compare on</label>
+          <select class="select" id="cmpMetric" style="width:auto">
+            <option value="members">Members</option>
+            <option value="attendance">Attendance</option>
+            <?php if (!empty($d['can_finance'])): ?><option value="giving">Giving</option><?php endif; ?>
+            <option value="growth">Growth</option>
+          </select>
+        </div>
+        <div class="chart-wrap" style="height:250px">
+          <canvas id="branchCompareChart"
+                  data-branch-compare='<?= htmlspecialchars(json_encode($d['branches']), ENT_QUOTES) ?>'
+                  role="img" aria-label="<?= htmlspecialchars(t('branch_plural')) ?> compared"></canvas>
+        </div>
+        <?php
+    }
+}
+
+if (!function_exists('widget_render_branch_leaderboard')) {
+    /** Top five by growth, with medals for the podium. */
+    function widget_render_branch_leaderboard(array $d, string $base_url): void
+    {
+        if (!$d) { widget_empty(); return; }
+        $max = max(1, max(array_map(fn($b) => abs($b['growth_percent']), $d)));
+        ?>
+        <ul class="bar-list">
+          <?php foreach ($d as $i => $b):
+              $medal = [0 => 'is-gold', 1 => 'is-silver', 2 => 'is-bronze'][$i] ?? '';
+              $pct = (int) round(abs($b['growth_percent']) / $max * 100);
+          ?>
+            <li class="bar-row">
+              <?php if ($i < 3): ?>
+                <span class="medal <?= $medal ?>" aria-label="Rank <?= $i + 1 ?>"><i class="fa-solid fa-medal" aria-hidden="true"></i><?= $i + 1 ?></span>
+              <?php else: ?>
+                <span class="orgwidget__rank"><?= $i + 1 ?></span>
+              <?php endif; ?>
+              <span class="bar-row__info">
+                <span class="bar-row__top">
+                  <a href="<?= htmlspecialchars($base_url . 'branches/view.php?id=' . (int) $b['id']) ?>" class="orgwidget__link"><?= htmlspecialchars($b['name']) ?></a>
+                  <strong class="growth <?= $b['growth_percent'] >= 0 ? 'is-up' : 'is-down' ?>">
+                    <i class="fa-solid fa-arrow-<?= $b['growth_percent'] >= 0 ? 'up' : 'down' ?>" aria-hidden="true"></i>
+                    <?= number_format(abs($b['growth_percent']), 1) ?>%
+                  </strong>
+                </span>
+                <span class="bar-row__track"><span class="bar-row__fill" style="width:<?= $pct ?>%"></span></span>
+              </span>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+        <?php
+    }
+}
+
+if (!function_exists('widget_render_branches_attention')) {
+    /** Declining attendance, or nothing recorded in 30+ days. */
+    function widget_render_branches_attention(array $d, string $base_url): void
+    {
+        if (!$d) {
+            ?>
+            <div class="widget__empty">
+              <i class="fa-solid fa-circle-check" style="color:var(--ok)" aria-hidden="true"></i>
+              <p>Every <?= htmlspecialchars(mb_strtolower(t('branch_singular'))) ?> is on track</p>
+            </div>
+            <?php
+            return;
+        }
+        ?>
+        <div class="table-wrap">
+          <table class="mini-table">
+            <thead><tr><th><?= htmlspecialchars(t('branch_singular')) ?></th><th><?= htmlspecialchars(t('leader_title')) ?></th><th>Inactive</th><th></th></tr></thead>
+            <tbody>
+              <?php foreach ($d as $b): ?>
+                <tr>
+                  <td>
+                    <a class="orgwidget__link" href="<?= htmlspecialchars($base_url . 'branches/view.php?id=' . (int) $b['id']) ?>"><?= htmlspecialchars($b['name']) ?></a>
+                    <span class="tsub"><?= htmlspecialchars($b['reason']) ?></span>
+                  </td>
+                  <td class="is-muted nowrap"><?= htmlspecialchars($b['leader_name']) ?></td>
+                  <td><span class="pill <?= $b['days'] >= 30 ? 'is-danger' : 'is-warn' ?>"><?= (int) $b['days'] ?>d</span></td>
+                  <td><a class="chip-btn" href="tel:<?= htmlspecialchars(str_replace(' ', '', $b['leader_phone'])) ?>">Contact</a></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+        <?php
+    }
+}
+
 /* ----------------------------------------------------------------- entry -- */
 
 if (!function_exists('render_widget')) {
@@ -557,6 +684,12 @@ if (!function_exists('render_widget')) {
             case 'recent_announcements': widget_render_recent_announcements($d); break;
             case 'my_tasks':             widget_render_my_tasks($d); break;
             case 'inactive_members':     widget_render_inactive_members($d); break;
+            case 'total_branches':       widget_render_kpi($w, $d, $base_url); break;
+            case 'org_giving_total':     widget_render_kpi($w, $d, $base_url); break;
+            case 'org_attendance_total': widget_render_kpi($w, $d, $base_url); break;
+            case 'branch_comparison':    widget_render_branch_comparison($d); break;
+            case 'branch_leaderboard':   widget_render_branch_leaderboard($d, $base_url); break;
+            case 'branches_attention':   widget_render_branches_attention($d, $base_url); break;
             case 'quick_actions':        widget_render_quick_actions($d, $enabled_modules, $permissions, $base_url); break;
             case 'service_calendar':     widget_render_calendar($d); break;
             case 'giving_goal':          widget_render_giving_goal($d); break;

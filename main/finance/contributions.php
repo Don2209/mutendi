@@ -1539,7 +1539,9 @@ require __DIR__ . '/../components/header.php';
     if (f.fMethod   && el.getAttribute('data-method')   !== f.fMethod)   { return false; }
     if (f.fCurrency && el.getAttribute('data-currency') !== f.fCurrency) { return false; }
     if (f.fService  && el.getAttribute('data-service')  !== f.fService)  { return false; }
+    <?php if ($show_branch): ?>
     if (f.fBranch   && el.getAttribute('data-branch')   !== f.fBranch)   { return false; }
+    <?php endif; ?>
     if (f.fProject  && el.getAttribute('data-project')  !== f.fProject)  { return false; }
     if (f.fBy       && el.getAttribute('data-by')       !== f.fBy)       { return false; }
     return true;

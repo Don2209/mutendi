@@ -77,7 +77,7 @@ $church = [
 
 $enabled_modules = [
     'members', 'attendance', 'departments', 'communication', 'reports',   /* core */
-    'finance', 'cell_groups', 'events', 'sermons', 'payroll', 'visitors', 'projects',
+    'finance', 'cell_groups', 'events', 'sermons', 'payroll', 'visitors', 'projects', 'budgets',
 ];
 
 /* ==========================================================================
@@ -116,6 +116,15 @@ $permissions = [
     /* Organisation structure: these unlock the branches pages in the sidebar
        (All / Add / Reports) and the Add entry points across the UI. */
     'branches.add', 'branches.edit', 'reports.view',
+    /* Fundraising projects: create, edit and close them. */
+    'projects.manage',
+    /* Authorising expenditure. Deliberately separate from finance.add: the
+       person who spends is rarely the person who signs it off. */
+    'finance.approve',
+    /* Drawing up and amending a budget. */
+    'budgets.manage',
+    /* Reading and publishing notices to the congregation. */
+    'communication.view', 'announcements.manage',
 ];
 
 /* ==========================================================================
@@ -196,41 +205,7 @@ $menu = [
         'icon'    => 'fa-comment-dots',
         'module'  => 'communication',
         'items'   => [
-            ['label' => 'Send Message',      'icon' => 'fa-paper-plane',   'url' => 'communication/send.php'],
             ['label' => 'Announcements',     'icon' => 'fa-bullhorn',      'url' => 'communication/announcements.php', 'badge' => 2],
-            ['label' => 'Message History',   'icon' => 'fa-clock-rotate-left', 'url' => 'communication/history.php'],
-            ['label' => 'Message Templates', 'icon' => 'fa-file-lines',    'url' => 'communication/templates.php'],
-        ],
-    ],
-
-    [
-        'heading' => 'Media',
-        'icon'    => 'fa-microphone-lines',
-        'module'  => 'sermons',
-        'items'   => [
-            ['label' => 'Sermons',       'icon' => 'fa-microphone-lines', 'url' => 'media/sermons.php'],
-            ['label' => 'Media Library', 'icon' => 'fa-photo-film',       'url' => 'media/library.php', 'module' => 'library'],
-        ],
-    ],
-
-    [
-        'heading' => 'Resources',
-        'icon'    => 'fa-box-archive',
-        'items'   => [
-            ['label' => 'Assets & Inventory', 'icon' => 'fa-boxes-stacked', 'url' => 'resources/assets.php',  'module' => 'assets'],
-            ['label' => 'Staff & Payroll',    'icon' => 'fa-money-check-dollar', 'url' => 'resources/payroll.php', 'module' => 'payroll', 'permission' => 'payroll.view'],
-        ],
-    ],
-
-    [
-        'heading' => 'Reports',
-        'icon'    => 'fa-chart-pie',
-        'module'  => 'reports',
-        'items'   => [
-            ['label' => 'Membership Report', 'icon' => 'fa-users-rectangle', 'url' => 'reports/membership.php'],
-            ['label' => 'Attendance Report', 'icon' => 'fa-chart-column',    'url' => 'reports/attendance.php'],
-            ['label' => 'Financial Report',  'icon' => 'fa-coins',           'url' => 'reports/financial.php', 'permission' => 'finance.reports'],
-            ['label' => 'Growth Report',     'icon' => 'fa-arrow-trend-up',  'url' => 'reports/growth.php'],
         ],
     ],
 
@@ -1189,7 +1164,7 @@ $widget_data = [
         ['label' => 'Record Attendance',   'icon' => 'fa-square-check',     'url' => 'attendance/record.php', 'module' => 'attendance', 'permission' => null],
         ['label' => 'Record Contribution', 'icon' => 'fa-circle-plus',      'url' => 'finance/record.php',    'module' => 'finance',    'permission' => 'finance.add'],
         ['label' => 'Add Event',           'icon' => 'fa-calendar-plus',    'url' => 'events/add.php',        'module' => 'events',     'permission' => null],
-        ['label' => 'Send Message',        'icon' => 'fa-paper-plane',      'url' => 'communication/send.php','module' => 'communication', 'permission' => null],
+        ['label' => 'Send Message',        'icon' => 'fa-paper-plane',      'url' => '#',                     'module' => 'communication', 'permission' => null],
         ['label' => 'Add Visitor',         'icon' => 'fa-hand-holding-heart','url' => 'members/visitors.php', 'module' => 'visitors',   'permission' => null],
         ['label' => 'Create Announcement', 'icon' => 'fa-bullhorn',         'url' => 'communication/announcements.php', 'module' => 'communication', 'permission' => null],
     ],
@@ -3939,12 +3914,8 @@ $cash_denominations = [
    module is on.
    LATER: SELECT id, name, target, raised FROM projects
            WHERE church_id = :church_id AND status = 'active'; */
-$projects_demo = [
-    ['id' => 1, 'name' => 'New Sanctuary Roof',      'target' => 25000, 'raised' => 18400],
-    ['id' => 2, 'name' => 'Borehole & Water Tank',   'target' =>  8000, 'raised' =>  6200],
-    ['id' => 3, 'name' => 'Youth Centre Furnishing', 'target' =>  5000, 'raised' =>  2150],
-    ['id' => 4, 'name' => 'Mission Vehicle Fund',    'target' => 32000, 'raised' =>  9750],
-];
+/* The projects a contribution can be tagged against. Defined in full in
+   section 13g, which this page's dropdowns and the pledges page share. */
 
 /* Contributions already captured today. The form checks a new entry against
    these to warn about a possible duplicate — same member, same amount, same
@@ -4037,9 +4008,764 @@ $giving_consistency_demo = [
    LATER: the same aggregate run twice, over two windows. */
 $contribution_stats = [
     'month'      => ['now' => 9340,  'prev' => 8990],
-    'year'       => ['now' => 97550, 'prev' => 88420],
+    /* Year to date, matching the series finance/reports.php reports on. */
+    'year'       => ['now' => 77731, 'prev' => 71400],
     'per_service'=> ['now' => 486,   'prev' => 452],
     'givers'     => ['now' => 318,   'prev' => 296],
+];
+
+/* ==========================================================================
+   13g. PLEDGES & PROJECTS  (finance/pledges.php)
+   Two linked concepts. A PROJECT is the goal the church is raising toward;
+   a PLEDGE is one member's promise toward that goal. Money already received
+   is `raised`; money promised but not yet paid is the gap between `pledged`
+   and `raised`, and the page shows that gap as its own state.
+
+   Everything the page can derive it derives — status, schedules, percentages,
+   days remaining — so the demo stays honest when the dates move.
+   LATER: SELECT * FROM projects WHERE church_id = :church_id;
+   ========================================================================== */
+
+/* The richer project record. This supersedes the four-field stand-in the
+   contribution pages were using; ids 1–4 are unchanged so contributions that
+   already point at a project still resolve. */
+$projects_demo = [
+    [
+        'id' => 1, 'name' => 'Church Building Fund',
+        'category' => 'Construction', 'icon' => 'fa-church', 'colour' => '#662F97',
+        'status' => 'active', 'currency' => 'USD',
+        'target' => 120000, 'raised' => 74500, 'pledged' => 96200,
+        'start_date' => '2025-02-01', 'target_date' => '2027-06-30',
+        'contributors' => [1, 3, 5, 7, 9, 11, 13, 15, 17, 2, 4, 6],
+        'allow_pledges' => true, 'public_progress' => true,
+        'description' => 'The new 1,200-seat sanctuary on the Chitungwiza stand. Phase one is the foundation and structural shell; phase two is roofing and glazing.',
+        'updates' => [
+            ['date' => '2026-08-02', 'title' => 'Structural shell topped out',  'body' => 'The last of the ring beam was poured on Saturday. The contractor moves to roof trusses in September.', 'photos' => 3],
+            ['date' => '2026-05-18', 'title' => 'Foundation signed off',        'body' => 'The council engineer inspected and passed the raft foundation. Certificate filed with the church office.',   'photos' => 2],
+            ['date' => '2026-01-24', 'title' => 'Ground broken',                'body' => 'Bishop Mutendi turned the first sod before a congregation of about four hundred.',                            'photos' => 5],
+        ],
+    ],
+    [
+        'id' => 2, 'name' => 'Church Bus',
+        'category' => 'Transport', 'icon' => 'fa-bus', 'colour' => '#0F766E',
+        'status' => 'active', 'currency' => 'USD',
+        'target' => 45000, 'raised' => 28900, 'pledged' => 36400,
+        'start_date' => '2025-06-15', 'target_date' => '2026-11-30',
+        'contributors' => [2, 4, 8, 10, 12, 14, 16, 18, 20],
+        'allow_pledges' => true, 'public_progress' => true,
+        'description' => 'A 32-seater to carry the youth and the women\'s fellowship to district gatherings, and to run the Sunday pickup route through Epworth and Ruwa.',
+        'updates' => [
+            ['date' => '2026-07-11', 'title' => 'Two quotations received', 'body' => 'A 2019 Toyota Coaster and a 2020 Higer are both within reach. The board reviews them this month.', 'photos' => 2],
+            ['date' => '2026-02-09', 'title' => 'Fund opened',             'body' => 'Announced at the annual general meeting. Pledges opened the same Sunday.',                          'photos' => 0],
+        ],
+    ],
+    [
+        'id' => 3, 'name' => 'Sound System Upgrade',
+        'category' => 'Equipment', 'icon' => 'fa-volume-high', 'colour' => '#B45309',
+        'status' => 'active', 'currency' => 'USD',
+        'target' => 12000, 'raised' => 11400, 'pledged' => 12000,
+        'start_date' => '2025-09-01', 'target_date' => '2026-09-15',
+        'contributors' => [1, 6, 9, 13, 19, 20],
+        'allow_pledges' => true, 'public_progress' => true,
+        'description' => 'A digital desk, twelve channels of radio microphone, and line array replacements for the main hall.',
+        'updates' => [
+            ['date' => '2026-08-20', 'title' => 'Desk ordered',       'body' => 'The mixing desk is paid for and in transit from Johannesburg.',                'photos' => 1],
+            ['date' => '2026-06-01', 'title' => 'Specification fixed', 'body' => 'The technical team settled on the final specification after two trial Sundays.', 'photos' => 0],
+        ],
+    ],
+    [
+        'id' => 4, 'name' => 'Mission Trip to Mozambique',
+        'category' => 'Missions', 'icon' => 'fa-earth-africa', 'colour' => '#1D4ED8',
+        'status' => 'active', 'currency' => 'USD',
+        'target' => 18000, 'raised' => 6200, 'pledged' => 9800,
+        'start_date' => '2026-01-10', 'target_date' => '2026-09-05',
+        'contributors' => [3, 7, 11, 15, 18],
+        'allow_pledges' => true, 'public_progress' => false,
+        'description' => 'Fourteen members to Beira for three weeks, working alongside the assemblies there. Covers transport, visas, materials and accommodation.',
+        'updates' => [
+            ['date' => '2026-08-14', 'title' => 'Visas lodged', 'body' => 'All fourteen applications are with the consulate. Travel is booked for October.', 'photos' => 1],
+        ],
+    ],
+    [
+        'id' => 5, 'name' => 'Orphanage Support',
+        'category' => 'Welfare', 'icon' => 'fa-hand-holding-heart', 'colour' => '#BE185D',
+        'status' => 'active', 'currency' => 'USD',
+        'target' => 24000, 'raised' => 15600, 'pledged' => 19300,
+        'start_date' => '2025-04-01', 'target_date' => '2027-03-31',
+        'contributors' => [2, 5, 8, 10, 14, 16, 17, 19],
+        'allow_pledges' => true, 'public_progress' => true,
+        'description' => 'A standing commitment to the children\'s home at Zvishavane — school fees, uniforms and a monthly grocery run.',
+        'updates' => [
+            ['date' => '2026-07-30', 'title' => 'Term three fees paid', 'body' => 'Fees settled for all twenty-two children ahead of the term.', 'photos' => 4],
+            ['date' => '2026-04-12', 'title' => 'Winter blankets',      'body' => 'Sixty blankets and forty pairs of shoes delivered.',            'photos' => 6],
+        ],
+    ],
+    [
+        'id' => 6, 'name' => 'Land Purchase',
+        'category' => 'Property', 'icon' => 'fa-map-location-dot', 'colour' => '#56287F',
+        'status' => 'on_hold', 'currency' => 'USD',
+        'target' => 85000, 'raised' => 21000, 'pledged' => 33500,
+        'start_date' => '2025-08-01', 'target_date' => '2027-08-31',
+        'contributors' => [1, 4, 9, 12, 20],
+        'allow_pledges' => false, 'public_progress' => false,
+        'description' => 'Two hectares adjoining the Norton assembly. On hold while the title deed dispute between the seller and the estate is resolved.',
+        'updates' => [
+            ['date' => '2026-06-20', 'title' => 'Placed on hold', 'body' => 'The board paused collections until the deed is clear. Nothing already given is at risk.', 'photos' => 0],
+        ],
+    ],
+    [
+        'id' => 7, 'name' => 'Roof Repairs',
+        'category' => 'Maintenance', 'icon' => 'fa-house-chimney-crack', 'colour' => '#B91C1C',
+        'status' => 'completed', 'currency' => 'USD',
+        'target' => 25000, 'raised' => 25400, 'pledged' => 25400,
+        'start_date' => '2024-11-01', 'target_date' => '2025-08-31',
+        'contributors' => [1, 2, 3, 6, 7, 11, 13, 16, 18, 19],
+        'allow_pledges' => false, 'public_progress' => true,
+        'description' => 'Replacing the storm-damaged roof sheeting and trusses over the main hall and the vestry.',
+        'updates' => [
+            ['date' => '2025-08-26', 'title' => 'Completed and handed over', 'body' => 'Final inspection passed. The project closed four hundred dollars over target, carried to general maintenance.', 'photos' => 3],
+        ],
+    ],
+    [
+        'id' => 8, 'name' => 'Youth Camp',
+        'category' => 'Youth', 'icon' => 'fa-campground', 'colour' => '#047857',
+        'status' => 'active', 'currency' => 'USD',
+        'target' => 6000, 'raised' => 1150, 'pledged' => 2400,
+        'start_date' => '2026-05-01', 'target_date' => '2026-08-20',
+        'contributors' => [5, 10, 15, 17],
+        'allow_pledges' => true, 'public_progress' => true,
+        'description' => 'The August camp at Nyanga for the youth and Sunday school — transport, food and the campsite booking.',
+        'updates' => [
+            ['date' => '2026-08-10', 'title' => 'Shortfall flagged', 'body' => 'The camp is under-funded with the date passed. The youth committee is deciding whether to postpone.', 'photos' => 0],
+        ],
+    ],
+];
+
+/* Payment plans a pledge can be made on. `months` is the gap between
+   instalments; a one-off has no gap because it has no second instalment. */
+$pledge_plans = [
+    'one_off'   => ['key' => 'one_off',   'name' => 'One-off',   'months' => 0],
+    'weekly'    => ['key' => 'weekly',    'name' => 'Weekly',    'months' => 0.25],
+    'monthly'   => ['key' => 'monthly',   'name' => 'Monthly',   'months' => 1],
+    'quarterly' => ['key' => 'quarterly', 'name' => 'Quarterly', 'months' => 3],
+    'custom'    => ['key' => 'custom',    'name' => 'Custom',    'months' => 2],
+];
+
+/* Twenty pledges. Only what a real row would hold is stored — the status, the
+   schedule, the next due date and everything on the progress bar are worked
+   out from these figures against today's date.
+   LATER: SELECT * FROM pledges WHERE church_id = :church_id; */
+$pledges_demo = [
+    ['id' =>  1, 'member_id' =>  7, 'project_id' => 1, 'amount' => 2400.00, 'currency' => 'USD', 'paid' => 2400.00, 'plan' => 'monthly',   'instalments' => 12, 'first_due' => '2025-09-05', 'defaulted' => false, 'notes' => 'Completed ahead of the final instalment.'],
+    ['id' =>  2, 'member_id' =>  1, 'project_id' => 1, 'amount' => 6000.00, 'currency' => 'USD', 'paid' => 4500.00, 'plan' => 'monthly',   'instalments' => 24, 'first_due' => '2025-03-01', 'defaulted' => false, 'notes' => ''],
+    ['id' =>  3, 'member_id' => 13, 'project_id' => 1, 'amount' => 1200.00, 'currency' => 'USD', 'paid' =>  900.00, 'plan' => 'quarterly', 'instalments' =>  4, 'first_due' => '2025-11-15', 'defaulted' => false, 'notes' => 'Asked to move to a monthly plan.'],
+    ['id' =>  4, 'member_id' =>  5, 'project_id' => 1, 'amount' => 15000.00,'currency' => 'USD', 'paid' => 9000.00, 'plan' => 'quarterly', 'instalments' => 10, 'first_due' => '2025-04-01', 'defaulted' => false, 'notes' => 'Pledged at the ground-breaking service.'],
+    ['id' =>  5, 'member_id' =>  9, 'project_id' => 1, 'amount' =>  900.00, 'currency' => 'USD', 'paid' =>    0.00, 'plan' => 'monthly',   'instalments' =>  6, 'first_due' => '2026-02-10', 'defaulted' => true,  'notes' => 'No contact since February. Marked defaulted by the treasurer.'],
+    ['id' =>  6, 'member_id' =>  3, 'project_id' => 2, 'amount' => 1800.00, 'currency' => 'USD', 'paid' => 1650.00, 'plan' => 'monthly',   'instalments' => 12, 'first_due' => '2025-10-01', 'defaulted' => false, 'notes' => ''],
+    ['id' =>  7, 'member_id' => 16, 'project_id' => 2, 'amount' => 30000.00,'currency' => 'ZWG', 'paid' => 12000.00,'plan' => 'monthly',   'instalments' => 10, 'first_due' => '2025-12-01', 'defaulted' => false, 'notes' => 'Paying in local currency by agreement.'],
+    ['id' =>  8, 'member_id' => 11, 'project_id' => 2, 'amount' => 3000.00, 'currency' => 'USD', 'paid' => 3000.00, 'plan' => 'one_off',   'instalments' =>  1, 'first_due' => '2026-01-20', 'defaulted' => false, 'notes' => 'Settled in full on the day.'],
+    ['id' =>  9, 'member_id' => 20, 'project_id' => 2, 'amount' =>  600.00, 'currency' => 'USD', 'paid' =>  150.00, 'plan' => 'weekly',    'instalments' => 24, 'first_due' => '2026-03-08', 'defaulted' => false, 'notes' => ''],
+    ['id' => 10, 'member_id' =>  6, 'project_id' => 3, 'amount' => 2000.00, 'currency' => 'USD', 'paid' => 2000.00, 'plan' => 'monthly',   'instalments' =>  8, 'first_due' => '2025-10-12', 'defaulted' => false, 'notes' => ''],
+    ['id' => 11, 'member_id' => 19, 'project_id' => 3, 'amount' =>  480.00, 'currency' => 'GBP', 'paid' =>  360.00, 'plan' => 'quarterly', 'instalments' =>  4, 'first_due' => '2025-10-01', 'defaulted' => false, 'notes' => 'Gives from the United Kingdom.'],
+    ['id' => 12, 'member_id' =>  1, 'project_id' => 4, 'amount' => 1500.00, 'currency' => 'USD', 'paid' =>  500.00, 'plan' => 'monthly',   'instalments' =>  6, 'first_due' => '2026-02-15', 'defaulted' => false, 'notes' => ''],
+    ['id' => 13, 'member_id' => 15, 'project_id' => 4, 'amount' =>  750.00, 'currency' => 'USD', 'paid' =>  625.00, 'plan' => 'monthly',   'instalments' =>  6, 'first_due' => '2026-03-01', 'defaulted' => false, 'notes' => 'Two instalments missed.'],
+    ['id' => 14, 'member_id' => 18, 'project_id' => 4, 'amount' => 4200.00, 'currency' => 'ZAR', 'paid' => 3500.00, 'plan' => 'monthly',   'instalments' =>  6, 'first_due' => '2026-04-05', 'defaulted' => false, 'notes' => ''],
+    ['id' => 15, 'member_id' =>  8, 'project_id' => 5, 'amount' => 1200.00, 'currency' => 'USD', 'paid' =>  1100.00, 'plan' => 'monthly',   'instalments' => 12, 'first_due' => '2025-10-20', 'defaulted' => false, 'notes' => 'Standing order through the bank.'],
+    ['id' => 16, 'member_id' => 14, 'project_id' => 5, 'amount' => 2400.00, 'currency' => 'USD', 'paid' => 1400.00, 'plan' => 'monthly',   'instalments' => 24, 'first_due' => '2025-06-01', 'defaulted' => false, 'notes' => ''],
+    ['id' => 17, 'member_id' => 17, 'project_id' => 5, 'amount' =>  360.00, 'currency' => 'USD', 'paid' =>  360.00, 'plan' => 'custom',    'instalments' =>  3, 'first_due' => '2025-12-01', 'defaulted' => false, 'notes' => ''],
+    ['id' => 18, 'member_id' =>  4, 'project_id' => 6, 'amount' => 5000.00, 'currency' => 'USD', 'paid' => 1000.00, 'plan' => 'quarterly', 'instalments' =>  8, 'first_due' => '2025-09-01', 'defaulted' => false, 'notes' => 'Paused with the project.'],
+    ['id' => 19, 'member_id' => 10, 'project_id' => 8, 'amount' =>  400.00, 'currency' => 'USD', 'paid' =>  300.00, 'plan' => 'monthly',   'instalments' =>  4, 'first_due' => '2026-05-10', 'defaulted' => false, 'notes' => ''],
+    ['id' => 20, 'member_id' =>  5, 'project_id' => 8, 'amount' =>  800.00, 'currency' => 'USD', 'paid' =>    0.00, 'plan' => 'one_off',   'instalments' =>  1, 'first_due' => '2026-06-30', 'defaulted' => false, 'notes' => 'Promised at the youth service; nothing received.'],
+];
+
+/* Money received per project, month by month, for the Analysis tab's line
+   chart. Twelve points each, oldest first, in USD.
+   LATER: SELECT project_id, DATE_FORMAT(received_on,'%Y-%m'), SUM(amount_usd)
+           FROM contributions WHERE project_id IS NOT NULL GROUP BY 1, 2; */
+$project_trend_demo = [
+    1 => [2100, 2800, 3400, 4100, 3900, 5200, 6400, 5800, 7100, 8200, 7600, 9400],
+    2 => [ 900, 1200, 1450, 1100, 1800, 2400, 2100, 2900, 3200, 2800, 3600, 4100],
+    3 => [ 400,  650,  820,  900, 1100,  980, 1250, 1400, 1180, 1350, 1520, 1600],
+    4 => [   0,    0,  180,  320,  450,  610,  780,  920, 1050,  880, 1140, 1300],
+    5 => [ 620,  740,  810,  900,  980, 1120, 1240, 1180, 1360, 1420, 1580, 1700],
+    6 => [1200, 1400, 1650, 1800, 2100, 2400, 1900,  800,  400,  200,    0,    0],
+    7 => [1800, 2200, 2600, 3100, 3400, 3900, 4200, 3800,    0,    0,    0,    0],
+    8 => [   0,    0,    0,   80,  140,  210,  260,  180,  120,   90,   50,   20],
+];
+
+/* Headline figures for the stat strip, with the previous period beside them.
+   LATER: the same aggregate run over two windows. */
+$pledge_stats = [
+    'projects' => ['now' => 6,      'prev' => 5],
+    'pledged'  => ['now' => 234600, 'prev' => 211400],
+    'received' => ['now' => 183750, 'prev' => 161200],
+];
+
+/* ==========================================================================
+   13h. EXPENSES  (finance/expenses.php)
+   Money going out, and who authorised it. In most churches the person who
+   spends is not the person who approves, so every row carries a workflow
+   state as well as a figure.
+   LATER: SELECT * FROM expense_categories WHERE church_id = :church_id;
+   ========================================================================== */
+
+$expense_categories = [
+    ['key' => 'utilities',   'name' => 'Utilities',              'icon' => 'fa-bolt',              'colour' => '#B45309'],
+    ['key' => 'rent',        'name' => 'Rent & Facilities',      'icon' => 'fa-building',          'colour' => '#662F97'],
+    ['key' => 'salaries',    'name' => 'Salaries & Stipends',    'icon' => 'fa-user-tie',          'colour' => '#1D4ED8'],
+    ['key' => 'maintenance', 'name' => 'Maintenance & Repairs',  'icon' => 'fa-screwdriver-wrench','colour' => '#B91C1C'],
+    ['key' => 'transport',   'name' => 'Transport & Fuel',       'icon' => 'fa-gas-pump',          'colour' => '#0F766E'],
+    ['key' => 'events',      'name' => 'Events & Programs',      'icon' => 'fa-calendar-star',     'colour' => '#BE185D'],
+    ['key' => 'outreach',    'name' => 'Outreach & Missions',    'icon' => 'fa-earth-africa',      'colour' => '#047857'],
+    ['key' => 'welfare',     'name' => 'Welfare & Benevolence',  'icon' => 'fa-hand-holding-heart','colour' => '#8F5CC2'],
+    ['key' => 'office',      'name' => 'Office & Admin',         'icon' => 'fa-paperclip',         'colour' => '#56287F'],
+    ['key' => 'equipment',   'name' => 'Equipment',              'icon' => 'fa-toolbox',           'colour' => '#0369A1'],
+    ['key' => 'media',       'name' => 'Media & Sound',          'icon' => 'fa-volume-high',       'colour' => '#C2410C'],
+    ['key' => 'refresh',     'name' => 'Refreshments',           'icon' => 'fa-mug-hot',           'colour' => '#A16207'],
+    ['key' => 'bank',        'name' => 'Bank Charges',           'icon' => 'fa-building-columns',  'colour' => '#6B6480'],
+    ['key' => 'other',       'name' => 'Other',                  'icon' => 'fa-ellipsis',          'colour' => '#94A3B8'],
+];
+
+/* What each category is allowed this month, in USD. Derived in section 13i
+   from the active annual budget, so the budgets page and the expenses page
+   read the same figure. Only used when the budgets module is on.
+   LATER: SELECT category_key, amount FROM budget_lines WHERE period = :month; */
+
+/* Twenty-five expenses across every category, status and currency.
+   `status` is the workflow state: draft · pending · approved · rejected · paid.
+   `approved_by` is null until somebody signs it off.
+   LATER: SELECT * FROM expenses WHERE church_id = :church_id ORDER BY spent_on DESC; */
+$expenses_demo = [
+    ['id' =>  1, 'ref' => 'MCP-E-2041', 'days_ago' =>  1, 'description' => 'ZESA prepaid tokens — main hall', 'category' => 'utilities',   'amount' =>   180.00, 'currency' => 'USD', 'method' => 'ecocash', 'txn' => 'MP260827.1420.B31908', 'payee' => 'ZESA Holdings',            'by' => 'Farai Nyoni',    'approved_by' => null,             'status' => 'pending',  'receipt' => true,  'notes' => 'Hall meter was down to eleven units before Sunday.'],
+    ['id' =>  2, 'ref' => 'MCP-E-2040', 'days_ago' =>  2, 'description' => 'Diesel for the church generator',  'category' => 'transport',   'amount' =>   240.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Puma Energy Chitungwiza','by' => 'Blessing Moyo',  'approved_by' => null,             'status' => 'pending',  'receipt' => true,  'notes' => 'Two hundred litres to cover the load-shedding schedule through September.'],
+    ['id' =>  3, 'ref' => 'MCP-E-2039', 'days_ago' =>  4, 'description' => 'Pastoral stipends — August',       'category' => 'salaries',    'amount' =>  3200.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'FBC-TT-889201',       'payee' => 'Payroll run 2026-08',     'by' => 'Farai Nyoni',    'approved_by' => 'Rev. Enock Sithole','status' => 'paid',    'receipt' => true,  'notes' => 'Monthly run for the four pastoral staff.'],
+    ['id' =>  4, 'ref' => 'MCP-E-2038', 'days_ago' =>  5, 'description' => 'Roof sheet replacement — vestry',  'category' => 'maintenance', 'amount' =>   860.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Mudzi Hardware',          'by' => 'Blessing Moyo',  'approved_by' => 'Rev. Enock Sithole','status' => 'approved','receipt' => true,  'notes' => 'Six sheets and fasteners after the storm damage.'],
+    ['id' =>  5, 'ref' => 'MCP-E-2037', 'days_ago' =>  6, 'description' => 'Communion supplies',              'category' => 'refresh',     'amount' =>   145.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'OK Zimbabwe',             'by' => 'Grace Chikomo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => false, 'notes' => 'Bread and grape juice for the first Sunday.'],
+    ['id' =>  6, 'ref' => 'MCP-E-2036', 'days_ago' =>  8, 'description' => 'Radio microphone batteries',      'category' => 'media',       'amount' =>  2400.00, 'currency' => 'ZWG', 'method' => 'ecocash', 'txn' => 'MP260820.0915.C77120','payee' => 'Sound Centre Harare',     'by' => 'Rudo Chirwa',    'approved_by' => null,             'status' => 'pending',  'receipt' => false, 'notes' => 'The lapel packs have been cutting out mid-sermon.'],
+    ['id' =>  7, 'ref' => 'MCP-E-2035', 'days_ago' =>  9, 'description' => 'Youth camp transport hire',       'category' => 'events',      'amount' =>   680.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'FBC-TT-887034',       'payee' => 'Tenda Bus Services',      'by' => 'Grace Chikomo',  'approved_by' => 'Rev. Enock Sithole','status' => 'paid',    'receipt' => true,  'notes' => 'Two buses to Nyanga and back.'],
+    ['id' =>  8, 'ref' => 'MCP-E-2034', 'days_ago' => 11, 'description' => 'Groceries for bereaved family',   'category' => 'welfare',     'amount' =>   120.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Mai Chikomo (welfare)',   'by' => 'Grace Chikomo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => false, 'notes' => 'Approved under the standing benevolence allowance.'],
+    ['id' =>  9, 'ref' => 'MCP-E-2033', 'days_ago' => 12, 'description' => 'Printer toner and A4 paper',      'category' => 'office',      'amount' =>   740.00, 'currency' => 'ZAR', 'method' => 'swipe',   'txn' => '',                    'payee' => 'Makro Polokwane',         'by' => 'Grace Chikomo',  'approved_by' => 'Tendai Marufu',  'status' => 'approved', 'receipt' => true,  'notes' => 'Bought on the Johannesburg trip; cheaper than local.'],
+    ['id' => 10, 'ref' => 'MCP-E-2032', 'days_ago' => 14, 'description' => 'Monthly bank service charge',     'category' => 'bank',        'amount' =>    38.50, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'FBC-CHG-0826',        'payee' => 'FBC Bank',                'by' => 'Farai Nyoni',    'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => true,  'notes' => 'Automatic deduction on the current account.'],
+    ['id' => 11, 'ref' => 'MCP-E-2031', 'days_ago' => 16, 'description' => 'Hall rental — Braeside outreach', 'category' => 'rent',        'amount' =>   450.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Braeside Community Hall', 'by' => 'Blessing Moyo',  'approved_by' => 'Rev. Enock Sithole','status' => 'paid',    'receipt' => true,  'notes' => 'Three Sundays while the roof was being repaired.'],
+    ['id' => 12, 'ref' => 'MCP-E-2030', 'days_ago' => 18, 'description' => 'Mission trip visa fees',          'category' => 'outreach',    'amount' =>   560.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'FBC-TT-884417',       'payee' => 'Mozambique Consulate',    'by' => 'Rudo Chirwa',    'approved_by' => 'Rev. Enock Sithole','status' => 'paid',    'receipt' => true,  'notes' => 'Fourteen applications at forty dollars each.'],
+    ['id' => 13, 'ref' => 'MCP-E-2029', 'days_ago' => 19, 'description' => 'Replacement projector lamp',      'category' => 'equipment',   'amount' =>   310.00, 'currency' => 'USD', 'method' => 'zipit',   'txn' => 'ZIP-260809-44120',    'payee' => 'TechZone Harare',         'by' => 'Rudo Chirwa',    'approved_by' => null,             'status' => 'rejected', 'receipt' => false, 'notes' => 'Requested without a quotation attached.'],
+    ['id' => 14, 'ref' => 'MCP-E-2028', 'days_ago' => 21, 'description' => 'Borehole pump servicing',         'category' => 'maintenance', 'amount' =>   295.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Aqua Tech Services',      'by' => 'Blessing Moyo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => true,  'notes' => 'Annual service, due since June.'],
+    ['id' => 15, 'ref' => 'MCP-E-2027', 'days_ago' => 23, 'description' => 'City of Harare water bill',       'category' => 'utilities',   'amount' =>   410.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => 'FBC-TT-881290',       'payee' => 'City of Harare',          'by' => 'Farai Nyoni',    'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => true,  'notes' => 'Quarterly account, settled in full.'],
+    ['id' => 16, 'ref' => 'MCP-E-2026', 'days_ago' => 25, 'description' => 'Choir uniforms — deposit',        'category' => 'events',      'amount' =>   180.00, 'currency' => 'GBP', 'method' => 'bank',    'txn' => 'FBC-TT-880115',       'payee' => 'Sartoria Fabrics UK',     'by' => 'Grace Chikomo',  'approved_by' => null,             'status' => 'pending',  'receipt' => true,  'notes' => 'Half the cost up front; the balance falls due on delivery.'],
+    ['id' => 17, 'ref' => 'MCP-E-2025', 'days_ago' => 27, 'description' => 'Sunday school teaching aids',     'category' => 'office',      'amount' =>    95.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Kingstons Bookshop',      'by' => 'Grace Chikomo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => false, 'notes' => 'Charts and workbooks for the term.'],
+    ['id' => 18, 'ref' => 'MCP-E-2024', 'days_ago' => 30, 'description' => 'Generator fuel — August',         'category' => 'transport',   'amount' =>  8600.00, 'currency' => 'ZWG', 'method' => 'cash',    'txn' => '',                    'payee' => 'Zuva Petroleum',          'by' => 'Blessing Moyo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => true,  'notes' => ''],
+    ['id' => 19, 'ref' => 'MCP-E-2023', 'days_ago' => 33, 'description' => 'Speaker cable and connectors',    'category' => 'media',       'amount' =>   125.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Sound Centre Harare',     'by' => 'Rudo Chirwa',    'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => true,  'notes' => ''],
+    ['id' => 20, 'ref' => 'MCP-E-2022', 'days_ago' => 36, 'description' => 'Tea and refreshments — elders',   'category' => 'refresh',     'amount' =>    68.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Bon Marche',              'by' => 'Grace Chikomo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => false, 'notes' => ''],
+    ['id' => 21, 'ref' => 'MCP-E-2021', 'days_ago' => 39, 'description' => 'Security guard stipend',          'category' => 'salaries',    'amount' =>   260.00, 'currency' => 'USD', 'method' => 'ecocash', 'txn' => 'MP260720.1730.D22841','payee' => 'Nyasha Gwenzi',           'by' => 'Farai Nyoni',    'approved_by' => 'Rev. Enock Sithole','status' => 'paid',    'receipt' => true,  'notes' => ''],
+    ['id' => 22, 'ref' => 'MCP-E-2020', 'days_ago' => 42, 'description' => 'Blankets for the children\'s home','category' => 'welfare',    'amount' =>  4200.00, 'currency' => 'ZAR', 'method' => 'swipe',   'txn' => '',                    'payee' => 'Pep Stores',              'by' => 'Grace Chikomo',  'approved_by' => 'Rev. Enock Sithole','status' => 'paid',    'receipt' => true,  'notes' => 'Sixty blankets for the Zvishavane home.'],
+    ['id' => 23, 'ref' => 'MCP-E-2019', 'days_ago' => 46, 'description' => 'Second-hand plastic chairs',      'category' => 'equipment',   'amount' =>   540.00, 'currency' => 'USD', 'method' => 'cheque',  'txn' => 'CHQ-004417',          'payee' => 'Ruwa Furnishers',         'by' => 'Blessing Moyo',  'approved_by' => 'Tendai Marufu',  'status' => 'paid',     'receipt' => true,  'notes' => 'One hundred chairs for the overflow tent.'],
+    ['id' => 24, 'ref' => 'MCP-E-2018', 'days_ago' =>  3, 'description' => 'Tent hire for the crusade',       'category' => 'outreach',    'amount' =>   950.00, 'currency' => 'USD', 'method' => 'bank',    'txn' => '',                    'payee' => 'Harare Marquee Hire',     'by' => 'Rudo Chirwa',    'approved_by' => null,             'status' => 'draft',    'receipt' => false, 'notes' => 'Quotation still being negotiated; not yet submitted.'],
+    ['id' => 25, 'ref' => 'MCP-E-2017', 'days_ago' =>  5, 'description' => 'Photocopier repair call-out',     'category' => 'other',       'amount' =>    85.00, 'currency' => 'USD', 'method' => 'cash',    'txn' => '',                    'payee' => 'Office Machines Ltd',     'by' => 'Grace Chikomo',  'approved_by' => null,             'status' => 'pending',  'receipt' => false, 'notes' => 'The feeder jams on anything above twenty pages.'],
+];
+
+/* Six months of spending per category, oldest first, in USD — the sparkline on
+   each category card. Twelve months of the same feeds the trend chart.
+   LATER: SELECT category_key, DATE_FORMAT(spent_on,'%Y-%m'), SUM(amount_usd)
+           FROM expenses GROUP BY 1, 2; */
+$expense_trend_demo = [
+    'utilities'   => [ 520,  610,  480,  700,  650,  590,  720,  640,  810,  760,  690,  590],
+    'rent'        => [ 450,  450,  450,  450,  450,  450,  900,  450,  450,  450,  450,  450],
+    'salaries'    => [3100, 3100, 3200, 3200, 3200, 3200, 3460, 3460, 3460, 3460, 3460, 3460],
+    'maintenance' => [ 210,  180,  940,  320,  260,  410,  180,  290,  620, 1120,  380, 1155],
+    'transport'   => [ 380,  420,  360,  510,  470,  440,  620,  580,  690,  740,  610,  560],
+    'events'      => [ 140,  620,  180,  240,  810,  190,  260,  920,  310,  280, 1140,  909],
+    'outreach'    => [ 120,  180,  240,  160,  920,  210,  180,  260,  340,  610,  580,  560],
+    'welfare'     => [ 180,  240,  210,  190,  260,  310,  228,  240,  180,  290,  320,  120],
+    'office'      => [  90,  110,   85,  140,  120,   95,  160,  105,  130,  115,   95,  135],
+    'equipment'   => [   0,  340,    0,  180,  520,    0,  260,  540,    0,  310,  180,  310],
+    'media'       => [  80,  210,  140,   95,  180,  120,  240,  160,  310,  125,  190,  214],
+    'refresh'     => [  55,   70,   62,   80,   68,   74,   90,   66,   85,   72,   88,  213],
+    'bank'        => [  36,   36,   38,   38,   38,   38,   39,   39,   39,   39,   39,   39],
+    'other'       => [  40,   85,    0,  120,   60,    0,   95,   40,  110,    0,   75,   85],
+];
+
+/* Headline figures with the previous period beside them. All in USD.
+   LATER: the same aggregate run over two windows. */
+$expense_stats = [
+    'month'    => ['now' => 6420, 'prev' => 5880],
+    'approved' => ['now' => 5140, 'prev' => 4720],
+];
+
+/* ==========================================================================
+   13i. BUDGETS  (finance/budgets.php)
+   A plan for a period, and what actually happened against it. The whole point
+   of the page is the variance, so every line carries what was budgeted and
+   enough to work out what has been received or spent.
+
+   For the period marked `derive`, actuals are read from the live ledgers —
+   $contributions_demo and $expenses_demo — and added to `prior`, which stands
+   for the months of the period that fall before the demo ledger window. The
+   other periods sit outside that window entirely and carry their own totals.
+   LATER: SELECT * FROM budgets WHERE church_id = :church_id;
+   ========================================================================== */
+
+$budget_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+$budget_periods = [
+    [
+        'id' => 1,
+        'name'     => '2026 Annual Budget',
+        'type'     => 'Annual',
+        'start'    => '2026-01-01',
+        'end'      => '2026-12-31',
+        'status'   => 'active',
+        'currency' => 'USD',
+        'derive'   => true,
+        'months'         => $budget_months,
+        'budget_income'  => [9000, 9000, 9000, 9000, 9000, 9000, 9000, 9000, 9000, 9000, 9000, 9000],
+        'budget_expense' => [7800, 7800, 7800, 7800, 7800, 7800, 7800, 7800, 7800, 7800, 7800, 7800],
+        /* Nulls from September on: the year has not reached them yet. */
+        'actual_income'  => [8200, 8900, 9600, 9100, 10200, 9800, 10800, 11131, null, null, null, null],
+        'actual_expense' => [7100, 7600, 8200, 7900,  8400, 8100,  8900,  8841, null, null, null, null],
+        'income' => [
+            ['item' => 'Tithes',            'type' => 'tithe',       'group' => 'Regular Giving', 'budget' => 48000, 'prior' => 31200, 'notes' => 'The backbone of the budget. Assumes 320 regular givers.'],
+            ['item' => 'Offerings',         'type' => 'offering',    'group' => 'Regular Giving', 'budget' => 22000, 'prior' => 14100, 'notes' => 'Sunday and midweek collections.'],
+            ['item' => 'Thanksgiving',      'type' => 'thanksgiving','group' => 'Regular Giving', 'budget' =>  4500, 'prior' =>  3400, 'notes' => ''],
+            ['item' => 'Building Fund',     'type' => 'building',    'group' => 'Designated',     'budget' => 15000, 'prior' => 11800, 'notes' => 'Ring-fenced for the sanctuary project.'],
+            ['item' => 'Seed Offerings',    'type' => 'seed',        'group' => 'Designated',     'budget' =>  3000, 'prior' =>  1420, 'notes' => ''],
+            ['item' => 'Pledge Payments',   'type' => 'pledge',      'group' => 'Designated',     'budget' =>  6000, 'prior' =>  4600, 'notes' => 'Instalments against project pledges.'],
+            ['item' => 'Missions Giving',   'type' => 'missions',    'group' => 'Designated',     'budget' =>  2400, 'prior' =>  1180, 'notes' => ''],
+            ['item' => 'Welfare Giving',    'type' => 'welfare',     'group' => 'Designated',     'budget' =>  1800, 'prior' =>   980, 'notes' => 'Benevolence fund top-ups.'],
+            ['item' => 'Special Offerings', 'type' => 'special',     'group' => 'Special',        'budget' =>  2000, 'prior' =>  2350, 'notes' => 'Already past the line after the April convention.'],
+            ['item' => 'First Fruits',      'type' => 'firstfruits', 'group' => 'Special',        'budget' =>  3300, 'prior' =>  2260, 'notes' => ''],
+        ],
+        'expense' => [
+            ['category' => 'utilities',   'budget' => 10800, 'prior' => 6934, 'notes' => 'ZESA, water and refuse.'],
+            ['category' => 'rent',        'budget' => 14400, 'prior' => 9150, 'notes' => 'Hall and office leases.'],
+            ['category' => 'salaries',    'budget' => 31200, 'prior' => 17340,'notes' => 'Four pastoral staff and the caretaker.'],
+            ['category' => 'maintenance', 'budget' =>  6000, 'prior' => 5225, 'notes' => 'Storm damage has taken most of this line.'],
+            ['category' => 'transport',   'budget' =>  5400, 'prior' => 3680, 'notes' => ''],
+            ['category' => 'events',      'budget' =>  6000, 'prior' => 2980, 'notes' => 'Convention and camps.'],
+            ['category' => 'outreach',    'budget' =>  4800, 'prior' => 3232, 'notes' => ''],
+            ['category' => 'welfare',     'budget' =>  3600, 'prior' => 2210, 'notes' => ''],
+            ['category' => 'office',      'budget' =>  2400, 'prior' => 1755, 'notes' => ''],
+            ['category' => 'equipment',   'budget' =>  3000, 'prior' =>  600, 'notes' => 'The chair replacement is still to come.'],
+            ['category' => 'media',       'budget' =>  2400, 'prior' =>  670, 'notes' => 'Held back pending the sound upgrade.'],
+            ['category' => 'refresh',     'budget' =>  1440, 'prior' => 1340, 'notes' => 'Communion and hospitality.'],
+            ['category' => 'bank',        'budget' =>   480, 'prior' =>  305, 'notes' => ''],
+            ['category' => 'other',       'budget' =>  1680, 'prior' => 2085, 'notes' => 'Absorbing what the other lines will not.'],
+        ],
+    ],
+
+    [
+        'id' => 2,
+        'name'     => 'Q1 2026',
+        'type'     => 'Quarterly',
+        'start'    => '2026-01-01',
+        'end'      => '2026-03-31',
+        'status'   => 'closed',
+        'currency' => 'USD',
+        'derive'   => false,
+        'months'         => ['Jan', 'Feb', 'Mar'],
+        'budget_income'  => [8800, 8800, 8800],
+        'budget_expense' => [7600, 7600, 7600],
+        'actual_income'  => [8200, 8900, 9600],
+        'actual_expense' => [7100, 7600, 8200],
+        'income' => [
+            ['item' => 'Tithes',            'type' => 'tithe',       'group' => 'Regular Giving', 'budget' => 11700, 'prior' => 11940, 'notes' => 'Closed slightly ahead.'],
+            ['item' => 'Offerings',         'type' => 'offering',    'group' => 'Regular Giving', 'budget' =>  5400, 'prior' =>  5210, 'notes' => ''],
+            ['item' => 'Thanksgiving',      'type' => 'thanksgiving','group' => 'Regular Giving', 'budget' =>  1100, 'prior' =>  1245, 'notes' => ''],
+            ['item' => 'Building Fund',     'type' => 'building',    'group' => 'Designated',     'budget' =>  3600, 'prior' =>  4180, 'notes' => 'The ground-breaking service lifted this.'],
+            ['item' => 'Pledge Payments',   'type' => 'pledge',      'group' => 'Designated',     'budget' =>  1500, 'prior' =>  1360, 'notes' => ''],
+            ['item' => 'Special Offerings', 'type' => 'special',     'group' => 'Special',        'budget' =>  1100, 'prior' =>  1765, 'notes' => ''],
+        ],
+        'expense' => [
+            ['category' => 'utilities',   'budget' => 2700, 'prior' => 2610, 'notes' => ''],
+            ['category' => 'rent',        'budget' => 3600, 'prior' => 3600, 'notes' => 'Fixed lease, no variance.'],
+            ['category' => 'salaries',    'budget' => 7800, 'prior' => 7740, 'notes' => ''],
+            ['category' => 'maintenance', 'budget' => 1500, 'prior' => 2190, 'notes' => 'The February roof leak.'],
+            ['category' => 'transport',   'budget' => 1350, 'prior' => 1180, 'notes' => ''],
+            ['category' => 'events',      'budget' => 1500, 'prior' =>  940, 'notes' => ''],
+            ['category' => 'outreach',    'budget' => 1200, 'prior' => 1320, 'notes' => ''],
+            ['category' => 'office',      'budget' =>  600, 'prior' =>  520, 'notes' => ''],
+            ['category' => 'refresh',     'budget' =>  360, 'prior' =>  480, 'notes' => ''],
+            ['category' => 'bank',        'budget' =>  120, 'prior' =>  120, 'notes' => ''],
+        ],
+    ],
+
+    [
+        'id' => 3,
+        'name'     => 'Building Project Budget',
+        'type'     => 'Project',
+        'start'    => '2026-02-01',
+        'end'      => '2027-06-30',
+        'status'   => 'draft',
+        'currency' => 'USD',
+        'derive'   => false,
+        'months'         => ['Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'],
+        'budget_income'  => [6000, 6000, 6000, 6000, 6000, 6000, 6000, 6000, 6000, 6000, 6000, 6000],
+        'budget_expense' => [5500, 5500, 5500, 5500, 5500, 5500, 5500, 5500, 5500, 5500, 5500, 5500],
+        'actual_income'  => [null, null, null, null, null, null, null, null, null, null, null, null],
+        'actual_expense' => [null, null, null, null, null, null, null, null, null, null, null, null],
+        'income' => [
+            ['item' => 'Building Fund',   'type' => 'building', 'group' => 'Designated', 'budget' => 52000, 'prior' => 0, 'notes' => 'Draft — nothing recorded against this yet.'],
+            ['item' => 'Pledge Payments', 'type' => 'pledge',   'group' => 'Designated', 'budget' => 20000, 'prior' => 0, 'notes' => ''],
+        ],
+        'expense' => [
+            ['category' => 'maintenance', 'budget' => 44000, 'prior' => 0, 'notes' => 'Structural works.'],
+            ['category' => 'equipment',   'budget' => 18000, 'prior' => 0, 'notes' => 'Seating and fittings.'],
+            ['category' => 'other',       'budget' =>  4000, 'prior' => 0, 'notes' => 'Council fees and contingency.'],
+        ],
+    ],
+];
+
+/* The per-category allowance the expenses page reads, derived from the active
+   annual budget so the two pages can never disagree about what a category is
+   allowed. It is scaled to the window the expense ledger actually covers —
+   comparing a whole ledger against a single month's line would report almost
+   every category as overspent purely because the ledger is longer than a month.
+   LATER: SELECT category_key, amount FROM budget_lines WHERE period = :period; */
+$__ledger_days = 1;
+foreach ($expenses_demo as $__e) { $__ledger_days = max($__ledger_days, (int) $__e['days_ago']); }
+
+$expense_budgets = [];
+foreach ($budget_periods[0]['expense'] as $__line) {
+    $expense_budgets[$__line['category']] = (int) round(($__line['budget'] / 365) * $__ledger_days);
+}
+unset($__line, $__e, $__ledger_days);
+
+/* ==========================================================================
+   13j. FINANCIAL REPORTS  (finance/reports.php)
+   The reporting page sits on top of every other finance page, so its figures
+   are built from one 24-month series rather than from a separate set of
+   totals. A date range picks a window out of that series; the type and
+   category breakdowns are that window's total split by the shares below.
+   The last eight months of 2026 match the actuals the budgets page carries,
+   so the two pages never disagree.
+   LATER: these become GROUP BY month queries over contributions and expenses.
+   ========================================================================== */
+
+/* Twenty-four months ending with the current one, oldest first. */
+$report_monthly = [
+    'income' => [
+        6900, 7200, 7800, 8600,                                     /* Sep–Dec 2024 */
+        7100, 7400, 7900, 7600, 8200, 8000, 8400, 8100, 8800, 8300, 9000, 9600,  /* 2025 */
+        8200, 8900, 9600, 9100, 10200, 9800, 10800, 11131,          /* Jan–Aug 2026 */
+    ],
+    'expenditure' => [
+        6100, 6300, 6800, 7400,
+        6200, 6400, 6700, 6500, 6900, 6800, 7100, 6900, 7300, 7000, 7500, 8000,
+        7100, 7600, 8200, 7900, 8400, 8100, 8900, 8841,
+    ],
+];
+
+/* The balance the running cash-flow line starts from. */
+$report_opening_balance = 18400;
+
+/* Cash actually held at the end of the current period, across all accounts.
+   LATER: SELECT SUM(balance) FROM accounts WHERE church_id = :church_id; */
+$report_cash_at_hand = ['now' => 31090, 'prev' => 27640];
+
+/* How a period's income splits by contribution type, and its expenditure by
+   category. Shares rather than amounts, so any window of the series above can
+   be broken down without storing a figure per month per type. */
+$report_income_shares = [
+    'tithe' => 41.3, 'offering' => 19.8, 'building' => 16.2, 'pledge' => 6.7,
+    'thanksgiving' => 4.5, 'firstfruits' => 3.3, 'special' => 3.1, 'seed' => 2.0,
+    'missions' => 1.8, 'welfare' => 1.3,
+];
+$report_expense_shares = [
+    'salaries' => 33.4, 'rent' => 15.4, 'utilities' => 11.6, 'maintenance' => 8.6,
+    'transport' => 6.4, 'events' => 5.9, 'outreach' => 5.8, 'welfare' => 4.0,
+    'office' => 2.9, 'refresh' => 2.4, 'equipment' => 1.8, 'media' => 1.2,
+    'other' => 0.4, 'bank' => 0.2,
+];
+
+/* Where the giving actually comes from. The point of the table is the
+   concentration: a small number of regular givers carry most of it.
+   LATER: derived from a giving-frequency query over the last 12 months. */
+$giving_segments = [
+    ['key' => 'regular',    'name' => 'Regular',     'desc' => 'Gave in 9 or more of the last 12 months', 'members' => 118, 'total' => 61240, 'colour' => '#0F766E'],
+    ['key' => 'occasional', 'name' => 'Occasional',  'desc' => 'Gave in 3 to 8 months',                   'members' => 142, 'total' => 21870, 'colour' => '#662F97'],
+    ['key' => 'new',        'name' => 'New',         'desc' => 'First gave within the last 3 months',     'members' =>  34, 'total' =>  4180, 'colour' => '#B48FDA'],
+    ['key' => 'lapsed',     'name' => 'Lapsed',      'desc' => 'Gave regularly, nothing for 3 months',    'members' =>  47, 'total' =>  2790, 'colour' => '#B45309'],
+    ['key' => 'never',      'name' => 'Never Given', 'desc' => 'No contribution on record',               'members' => 121, 'total' =>     0, 'colour' => '#94A3B8'],
+];
+
+/* Confidential — only ever rendered behind finance.reports.
+   LATER: SELECT member_id, SUM(amount_usd) … ORDER BY 2 DESC LIMIT 10; */
+$top_givers = [
+    ['member_id' => 15, 'name' => 'Kelvin Marufu',   'total' => 4820, 'count' => 34, 'segment' => 'Regular'],
+    ['member_id' =>  5, 'name' => 'Nyasha Dube',     'total' => 4150, 'count' => 31, 'segment' => 'Regular'],
+    ['member_id' =>  7, 'name' => 'Loveness Moyo',   'total' => 3640, 'count' => 29, 'segment' => 'Regular'],
+    ['member_id' =>  1, 'name' => 'Tendai Museka',   'total' => 3180, 'count' => 27, 'segment' => 'Regular'],
+    ['member_id' => 13, 'name' => 'Simbarashe Ncube','total' => 2790, 'count' => 24, 'segment' => 'Regular'],
+    ['member_id' =>  9, 'name' => 'Chiedza Banda',   'total' => 2410, 'count' => 22, 'segment' => 'Regular'],
+    ['member_id' => 11, 'name' => 'Tapiwa Zhou',     'total' => 2050, 'count' => 19, 'segment' => 'Regular'],
+    ['member_id' => 16, 'name' => 'Melody Sibanda',  'total' => 1780, 'count' => 17, 'segment' => 'Regular'],
+    ['member_id' =>  2, 'name' => 'Denford Masuku',  'total' => 1520, 'count' => 15, 'segment' => 'Occasional'],
+    ['member_id' => 18, 'name' => 'Rutendo Chimuka', 'total' => 1290, 'count' => 12, 'segment' => 'Occasional'],
+];
+
+/* Giving cut three ways. Each set is [label => [members, total]] in USD.
+   LATER: joins onto the member table's dob, gender and department. */
+$giving_demographics = [
+    'age' => [
+        'Under 18' => ['members' =>  38, 'total' =>   940],
+        '18–25'    => ['members' =>  74, 'total' =>  6280],
+        '26–35'    => ['members' => 118, 'total' => 21440],
+        '36–50'    => ['members' =>  96, 'total' => 31860],
+        '51–65'    => ['members' =>  82, 'total' => 22110],
+        'Over 65'  => ['members' =>  54, 'total' =>  7450],
+    ],
+    'gender' => [
+        'Female' => ['members' => 258, 'total' => 51820],
+        'Male'   => ['members' => 204, 'total' => 38260],
+    ],
+    'department' => [
+        "Women's Fellowship" => ['members' => 86, 'total' => 18420],
+        'Praise & Worship'   => ['members' => 42, 'total' =>  9860],
+        'Youth Ministry'     => ['members' => 96, 'total' =>  8140],
+        'Choir'              => ['members' => 38, 'total' =>  7290],
+        "Children's Ministry"=> ['members' => 34, 'total' =>  4610],
+        'Intercession'       => ['members' => 29, 'total' =>  6180],
+        'Media & Sound'      => ['members' => 18, 'total' =>  3240],
+        'Protocol'           => ['members' => 22, 'total' =>  2870],
+    ],
+];
+
+/* Members who gave steadily and then stopped. The whole reason the report
+   exists is so somebody follows them up.
+   LATER: members with 6+ months of giving and nothing in the last 90 days. */
+$lapsed_givers = [
+    ['member_id' =>  3, 'name' => 'Anotida Mabhena', 'last_gave' => '2026-04-12', 'previous_total' => 1840, 'months_given' => 11],
+    ['member_id' =>  8, 'name' => 'Tariro Zvobgo',   'last_gave' => '2026-03-29', 'previous_total' => 1260, 'months_given' => 9],
+    ['member_id' => 12, 'name' => 'Farai Chikafu',   'last_gave' => '2026-03-08', 'previous_total' =>  980, 'months_given' => 10],
+    ['member_id' => 17, 'name' => 'Rudo Mhlanga',    'last_gave' => '2026-02-15', 'previous_total' =>  740, 'months_given' => 8],
+    ['member_id' => 20, 'name' => 'Brian Zvobgo',    'last_gave' => '2026-01-25', 'previous_total' => 1420, 'months_given' => 12],
+    ['member_id' =>  6, 'name' => 'Memory Sibanda',  'last_gave' => '2025-12-21', 'previous_total' =>  610, 'months_given' => 7],
+];
+
+/* How long an expense waits between being requested and being decided.
+   LATER: AVG(DATEDIFF(approved_at, created_at)) with a histogram beside it. */
+$approval_turnaround = [
+    'average_days' => 3.4,
+    'previous_days' => 4.1,
+    'buckets' => [
+        'Same day'   => 22,
+        '1–2 days'   => 41,
+        '3–5 days'   => 28,
+        '6–10 days'  => 14,
+        'Over 10'    => 7,
+    ],
+];
+
+/* ==========================================================================
+   13k. ANNOUNCEMENTS  (communication/announcements.php)
+   Notices the church publishes to its members. They appear on the member-
+   facing side and may also be pushed out by SMS or email, so each record
+   carries both what was said and how it went out.
+   LATER: SELECT * FROM announcement_types WHERE church_id = :church_id;
+   ========================================================================== */
+
+/* How many members are actually on the notice list. Smaller than total
+   membership, because it counts only those with a contact number or an email
+   address on file — which is what an announcement can reach.
+   LATER: SELECT COUNT(*) FROM members WHERE church_id = :church_id
+           AND (phone IS NOT NULL OR email IS NOT NULL); */
+$announcement_audience_total = 462;
+
+$announcement_types = [
+    ['key' => 'general',   'name' => 'General',        'icon' => 'fa-circle-info',        'colour' => '#662F97'],
+    ['key' => 'urgent',    'name' => 'Urgent',         'icon' => 'fa-triangle-exclamation','colour' => '#B91C1C'],
+    ['key' => 'event',     'name' => 'Event',          'icon' => 'fa-calendar-star',      'colour' => '#1D4ED8'],
+    ['key' => 'service',   'name' => 'Service Change', 'icon' => 'fa-church',             'colour' => '#B45309'],
+    ['key' => 'prayer',    'name' => 'Prayer Request', 'icon' => 'fa-hands-praying',      'colour' => '#0F766E'],
+    ['key' => 'testimony', 'name' => 'Testimony',      'icon' => 'fa-comment-dots',       'colour' => '#8F5CC2'],
+    ['key' => 'celebration','name'=> 'Celebration',    'icon' => 'fa-cake-candles',       'colour' => '#BE185D'],
+    ['key' => 'notice',    'name' => 'Notice',         'icon' => 'fa-thumbtack',          'colour' => '#56287F'],
+];
+
+/* Fifteen notices covering every type and status.
+   `status` is one of published · scheduled · draft · expired.
+   `days_ago` is when it went out; `scheduled_at` is set instead for anything
+   still waiting. `branch_ids` is null for a whole-organisation notice.
+   LATER: SELECT * FROM announcements WHERE church_id = :church_id
+           ORDER BY pinned DESC, pin_order, published_at DESC; */
+$announcements = [
+    [
+        'id' => 1, 'title' => 'Sunday services move to the new sanctuary',
+        'type' => 'service', 'status' => 'published', 'days_ago' => 2,
+        'message' => "From Sunday the 6th of September all three morning services will be held in the new sanctuary rather than the main hall.\n\nThe 07:00 and 09:00 services keep their usual times. The 11:00 service moves forward by fifteen minutes to 11:15 so that the parking can clear between sittings.\n\nUshers will be on the path from the main gate to guide anyone who has not yet been inside the new building.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Rev. Enock Sithole',
+        'expires_on' => '2026-09-20', 'pinned' => true, 'pin_order' => 1,
+        'image' => 'The new sanctuary interior', 'views' => 214,
+        'sms' => ['sent' => 462, 'delivered' => 448, 'failed' => 14],
+        'email' => ['sent' => 310, 'delivered' => 301],
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 2, 'title' => 'Water shutdown at the Chitungwiza campus on Thursday',
+        'type' => 'urgent', 'status' => 'published', 'days_ago' => 1,
+        'message' => "The city has notified us of a planned water shutdown affecting the Chitungwiza campus this Thursday from 06:00 until roughly 18:00.\n\nThe midweek service will still go ahead. Please bring drinking water with you; the ablutions will be on tank supply only.",
+        'audience_kind' => 'branch', 'audience_label' => '2 Branches', 'recipients' => 128,
+        'branch_ids' => [7, 3], 'author' => 'Tendai Marufu',
+        'expires_on' => '2026-09-03', 'pinned' => true, 'pin_order' => 2,
+        'image' => null, 'views' => 187,
+        'sms' => ['sent' => 128, 'delivered' => 126, 'failed' => 2],
+        'email' => null,
+        'allow_comments' => false,
+    ],
+    [
+        'id' => 3, 'title' => 'Youth camp at Nyanga — final call for names',
+        'type' => 'event', 'status' => 'published', 'days_ago' => 5,
+        'message' => "Names for the August youth camp close on Friday. The camp runs from the 14th to the 17th at Nyanga, and the contribution is forty dollars a head, which covers transport, food and the campsite.\n\nSpeak to Rudo or any of the youth leaders after the second service, or send a message to the church office.",
+        'audience_kind' => 'department', 'audience_label' => 'Youth Ministry', 'recipients' => 96,
+        'branch_ids' => null, 'author' => 'Rudo Chirwa',
+        'expires_on' => '2026-08-14', 'pinned' => false, 'pin_order' => 0,
+        'image' => 'Last year at Nyanga', 'views' => 165,
+        'sms' => ['sent' => 96, 'delivered' => 94, 'failed' => 2],
+        'email' => ['sent' => 71, 'delivered' => 69],
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 4, 'title' => 'Please pray for the Mabhena family',
+        'type' => 'prayer', 'status' => 'published', 'days_ago' => 4,
+        'message' => "Brother Anotida Mabhena lost his mother on Tuesday morning after a long illness. The burial is on Saturday at Zvishavane.\n\nPlease hold the family in prayer this week, and speak to the welfare team if you are able to help with transport.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Grace Chikomo',
+        'expires_on' => null, 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 143,
+        'sms' => null, 'email' => ['sent' => 310, 'delivered' => 305],
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 5, 'title' => 'Thank you — the roof fund is closed',
+        'type' => 'testimony', 'status' => 'published', 'days_ago' => 9,
+        'message' => "The roof repair fund closed last Sunday at twenty-five thousand four hundred dollars, four hundred over what we asked for.\n\nThe surplus has been carried to general maintenance. Thank you to everyone who gave, and particularly to those who gave quietly and asked that nothing be said about it.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Farai Nyoni',
+        'expires_on' => null, 'pinned' => false, 'pin_order' => 0,
+        'image' => 'The finished roof', 'views' => 128,
+        'sms' => null, 'email' => ['sent' => 310, 'delivered' => 298],
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 6, 'title' => 'Baptism service — Sunday the 13th',
+        'type' => 'celebration', 'status' => 'published', 'days_ago' => 7,
+        'message' => "Twenty-two candidates will be baptised at the 09:00 service on Sunday the 13th.\n\nFamilies are welcome to come early for photographs. Candidates should arrive by 08:00 with a change of clothes and a towel.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Rev. Enock Sithole',
+        'expires_on' => '2026-09-14', 'pinned' => true, 'pin_order' => 3,
+        'image' => null, 'views' => 96,
+        'sms' => ['sent' => 462, 'delivered' => 455, 'failed' => 7],
+        'email' => null,
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 7, 'title' => 'Cell group leaders — training on Saturday',
+        'type' => 'notice', 'status' => 'published', 'days_ago' => 12,
+        'message' => "All cell group leaders and assistant leaders are expected at the training on Saturday from 09:00 to 13:00 in the fellowship room.\n\nBring your cell register and a notebook. Tea will be provided.",
+        'audience_kind' => 'cell', 'audience_label' => 'Cell Leaders', 'recipients' => 34,
+        'branch_ids' => null, 'author' => 'Tendai Marufu',
+        'expires_on' => '2026-08-22', 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 88,
+        'sms' => ['sent' => 34, 'delivered' => 34, 'failed' => 0],
+        'email' => ['sent' => 29, 'delivered' => 29],
+        'allow_comments' => false,
+    ],
+    [
+        'id' => 8, 'title' => 'Church office closed on Monday',
+        'type' => 'general', 'status' => 'published', 'days_ago' => 16,
+        'message' => "The church office will be closed on Monday the 17th for the public holiday and will reopen at 08:00 on Tuesday.\n\nFor anything urgent over the weekend please call the duty pastor on the number in the members' directory.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Grace Chikomo',
+        'expires_on' => '2026-08-18', 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 74,
+        'sms' => null, 'email' => null,
+        'allow_comments' => false,
+    ],
+
+    /* ── waiting to go out ── */
+    [
+        'id' => 9, 'title' => 'Harvest thanksgiving — bring your first fruits',
+        'type' => 'event', 'status' => 'scheduled', 'days_ago' => null,
+        'scheduled_at' => '2026-09-01 07:00',
+        'message' => "Harvest thanksgiving is on Sunday the 20th of September. Bring your first fruits to the front during the offering.\n\nThe women's fellowship will be receiving produce from Friday for anyone who would rather bring it in early.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Rev. Enock Sithole',
+        'expires_on' => '2026-09-21', 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 0,
+        'sms' => ['sent' => 0, 'delivered' => 0, 'failed' => 0], 'email' => null,
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 10, 'title' => 'Women\'s fellowship conference registration opens',
+        'type' => 'event', 'status' => 'scheduled', 'days_ago' => null,
+        'scheduled_at' => '2026-09-04 18:30',
+        'message' => "Registration for the October women's conference opens on Friday. The theme this year is \"A quiet and steady faith\".\n\nEarly registration is fifteen dollars until the end of September.",
+        'audience_kind' => 'department', 'audience_label' => "Women's Fellowship", 'recipients' => 86,
+        'branch_ids' => null, 'author' => 'Grace Chikomo',
+        'expires_on' => null, 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 0,
+        'sms' => null, 'email' => ['sent' => 0, 'delivered' => 0],
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 11, 'title' => 'Quarterly members\' meeting',
+        'type' => 'notice', 'status' => 'scheduled', 'days_ago' => null,
+        'scheduled_at' => '2026-09-10 06:00',
+        'message' => "The quarterly members' meeting is on Sunday the 27th of September immediately after the second service.\n\nThe finance report for the quarter will be tabled, along with the building committee's update.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Tendai Marufu',
+        'expires_on' => '2026-09-28', 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 0,
+        'sms' => null, 'email' => null,
+        'allow_comments' => false,
+    ],
+
+    /* ── not finished ── */
+    [
+        'id' => 12, 'title' => 'Christmas programme — draft',
+        'type' => 'event', 'status' => 'draft', 'days_ago' => null,
+        'message' => "Draft outline for the December programme. Dates still to be confirmed with the choir and the children's ministry before this goes anywhere.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Rudo Chirwa',
+        'expires_on' => null, 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 0, 'sms' => null, 'email' => null,
+        'allow_comments' => true,
+    ],
+    [
+        'id' => 13, 'title' => 'New giving numbers for EcoCash',
+        'type' => 'general', 'status' => 'draft', 'days_ago' => null,
+        'message' => "The merchant code changes at the end of the month. Waiting on written confirmation from the bank before this is sent to anybody.",
+        'audience_kind' => 'selected', 'audience_label' => '6 Selected Members', 'recipients' => 6,
+        'branch_ids' => null, 'author' => 'Farai Nyoni',
+        'expires_on' => null, 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 0, 'sms' => null, 'email' => null,
+        'allow_comments' => false,
+    ],
+
+    /* ── past their expiry ── */
+    [
+        'id' => 14, 'title' => 'Winter clothing drive closes on Friday',
+        'type' => 'notice', 'status' => 'expired', 'days_ago' => 54,
+        'message' => "The winter clothing drive closes this Friday. Bring blankets, coats and shoes to the collection point at the back of the main hall.\n\nEverything collected goes to the children's home at Zvishavane.",
+        'audience_kind' => 'all', 'audience_label' => 'All Members', 'recipients' => 462,
+        'branch_ids' => null, 'author' => 'Grace Chikomo',
+        'expires_on' => '2026-07-10', 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 92,
+        'sms' => ['sent' => 462, 'delivered' => 441, 'failed' => 21],
+        'email' => null,
+        'allow_comments' => false,
+    ],
+    [
+        'id' => 15, 'title' => 'Choir practice moved to Thursday for June',
+        'type' => 'service', 'status' => 'expired', 'days_ago' => 78,
+        'message' => "For the month of June only, choir practice moves from Wednesday to Thursday at 18:00 because of the hall booking.",
+        'audience_kind' => 'department', 'audience_label' => 'Choir', 'recipients' => 38,
+        'branch_ids' => null, 'author' => 'Rudo Chirwa',
+        'expires_on' => '2026-06-30', 'pinned' => false, 'pin_order' => 0,
+        'image' => null, 'views' => 53,
+        'sms' => null, 'email' => ['sent' => 34, 'delivered' => 33],
+        'allow_comments' => false,
+    ],
 ];
 
 /* ==========================================================================
@@ -4059,35 +4785,39 @@ $demo_roles = [
         'perms'   => ['members.view', 'members.add', 'members.edit', 'members.delete', 'members.export',
                       'finance.view', 'finance.add', 'finance.edit', 'finance.delete', 'finance.reports', 'payroll.view', 'settings.manage',
                       'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports', 'attendance.manage',
-                      'branches.add', 'branches.edit', 'reports.view'],
-        'modules' => array_merge($demo_core_modules, ['finance', 'cell_groups', 'events', 'sermons', 'payroll', 'visitors', 'projects']),
+                      'branches.add', 'branches.edit', 'reports.view', 'projects.manage', 'finance.approve',
+                      'budgets.manage', 'communication.view', 'announcements.manage'],
+        'modules' => array_merge($demo_core_modules, ['finance', 'cell_groups', 'events', 'sermons', 'payroll', 'visitors', 'projects', 'budgets']),
     ],
     'pastor' => [
         'user'    => ['name' => 'Rev. Enock Sithole', 'role' => 'pastor', 'role_label' => 'Pastor', 'initials' => 'ES', 'email' => 'enock@mutendicentral.co.zw'],
         'perms'   => ['members.view', 'members.add', 'members.edit', 'members.export', 'finance.view', 'finance.reports', 'reports.view',
+                      'finance.approve', 'communication.view', 'announcements.manage',
                       'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports', 'attendance.manage'],
         'modules' => array_merge($demo_core_modules, ['finance', 'cell_groups', 'events', 'sermons', 'visitors', 'projects']),
     ],
     'secretary' => [
         'user'    => ['name' => 'Grace Chikomo', 'role' => 'secretary', 'role_label' => 'Church Secretary', 'initials' => 'GC', 'email' => 'grace@mutendicentral.co.zw'],
         'perms'   => ['members.view', 'members.add', 'members.edit', 'members.export',
+                      'communication.view', 'announcements.manage',
                       'attendance.view', 'attendance.add', 'attendance.edit', 'attendance.reports'],
         'modules' => array_merge($demo_core_modules, ['events', 'visitors', 'cell_groups', 'sermons']),
     ],
     'treasurer' => [
         'user'    => ['name' => 'Farai Nyoni', 'role' => 'treasurer', 'role_label' => 'Treasurer', 'initials' => 'FN', 'email' => 'farai@mutendicentral.co.zw'],
         'perms'   => ['members.view', 'finance.view', 'finance.add', 'finance.edit', 'finance.reports', 'reports.view',
+                      'budgets.manage', 'communication.view',
                       'attendance.view'],
-        'modules' => array_merge($demo_core_modules, ['finance', 'projects']),
+        'modules' => array_merge($demo_core_modules, ['finance', 'projects', 'budgets']),
     ],
     'dept_head' => [
         'user'    => ['name' => 'Blessing Moyo', 'role' => 'dept_head', 'role_label' => 'Department Head', 'initials' => 'BM', 'email' => 'blessing@mutendicentral.co.zw'],
-        'perms'   => ['members.view', 'attendance.view'],
+        'perms'   => ['members.view', 'attendance.view', 'communication.view'],
         'modules' => array_merge($demo_core_modules, ['events', 'cell_groups']),
     ],
     'cell_leader' => [
         'user'    => ['name' => 'Rudo Chirwa', 'role' => 'cell_leader', 'role_label' => 'Cell Group Leader', 'initials' => 'RC', 'email' => 'rudo@mutendicentral.co.zw'],
-        'perms'   => ['members.view', 'attendance.view', 'attendance.add'],
+        'perms'   => ['members.view', 'attendance.view', 'attendance.add', 'communication.view'],
         'modules' => array_merge($demo_core_modules, ['cell_groups']),
         /* Which cell this leader actually leads — the cells page renders as a
            single detail view for them rather than the full directory. */

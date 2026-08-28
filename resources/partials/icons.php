@@ -1,5 +1,35 @@
 <?php
 /**
+ * Shared contact details and the inline SVG icon set.
+ *
+ * The contact constants live here because this is the first partial every page
+ * requires, so the nav, the pricing band, the floating button, the contact page
+ * and the footer all read one definition. Change the WhatsApp number in the one
+ * place below and it updates everywhere.
+ */
+
+/* TODO: replace with the real WhatsApp number before going live —
+   international format, no plus sign and no spaces. */
+$whatsappNumber = '263000000000';
+
+$contactEmail = 'info@mutendi.africa';
+
+/** Pretty-printed for display: 263 77 123 4567. */
+function whatsapp_display(string $n): string {
+    return trim(preg_replace('/^(\d{3})(\d{2})(\d{3})(\d+)$/', '+$1 $2 $3 $4', $n));
+}
+
+/** A wa.me link with the message already typed out for them. */
+function whatsapp_link(string $n, string $message = "Hi Mutendi, I'd like to know more about your church management system"): string {
+    return 'https://wa.me/' . $n . '?text=' . rawurlencode($message);
+}
+
+/** A mailto with the subject filled in. */
+function mail_link(string $address, string $subject = 'Enquiry from website'): string {
+    return 'mailto:' . $address . '?subject=' . rawurlencode($subject);
+}
+
+/**
  * Inline SVG icons on a 24x24 grid, drawn with strokes so they inherit currentColor.
  */
 function icon(string $name, string $class = ''): string {
@@ -26,6 +56,9 @@ function icon(string $name, string $class = ''): string {
         'building'  => '<path d="M3 21h18"/><path d="M5 21V6.5l7-4 7 4V21"/><path d="M10 21v-5h4v5"/>',
         'cloud'     => '<path d="M18 18.5H7a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 11.5a3.5 3.5 0 0 1 0 7z"/>',
         'caret'     => '<polyline points="6 9 12 15 18 9"/>',
+        'mail'      => '<rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><polyline points="3 6.5 12 13 21 6.5"/>',
+        'check'     => '<polyline points="4.5 12.5 9.5 17.5 19.5 6.5"/>',
+        'phone'     => '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
     ];
 
     if (empty($paths[$name])) {

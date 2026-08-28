@@ -10,7 +10,7 @@ $navLinks = [
     ['label' => 'Records',      'href' => '#records', 'icon' => 'register', 'badge' => 'New'],
     ['label' => 'For Dioceses', 'href' => '#dioceses'],
     ['label' => 'Parishes',     'href' => '#parishes'],
-    ['label' => 'Contact',      'href' => '#contact'],
+    ['label' => 'Contact',      'href' => 'contact.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -65,7 +65,7 @@ $navLinks = [
         </a>
       <?php endforeach; ?>
       <a class="nav__link nav__link--mobile" href="#signin">Sign in</a>
-      <a class="nav__link nav__link--mobile nav__link--cta" href="#contact">Get Started</a>
+      <a class="nav__link nav__link--mobile nav__link--cta" href="contact.php">Get Started</a>
     </nav>
 
     <div class="nav__actions">
@@ -74,7 +74,7 @@ $navLinks = [
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
       <a class="nav__signin" href="#signin">Sign in</a>
-      <a class="btn btn--dark" href="#contact">Get Started</a>
+      <a class="btn btn--dark" href="contact.php">Get Started</a>
     </div>
 
     <button class="nav__burger" type="button" aria-label="Open menu" aria-expanded="false">
@@ -226,11 +226,45 @@ $navLinks = [
 
 <?php require __DIR__ . '/resources/partials/testimonials.php'; ?>
 
+<!-- Pricing: no figures, because it genuinely depends on the size of the church. -->
+<section class="pricing" id="pricing">
+  <div class="pricing__inner">
+    <div class="pricing__card reveal">
+      <span class="pill">Pricing</span>
+      <h2 class="pricing__title">Simple, church-friendly pricing</h2>
+      <p class="pricing__lead">
+        What you pay depends on how many members you keep on the roll and which parts of
+        <?= $brand ?> you use &mdash; a single parish and a diocese with forty are not the
+        same thing, and it would be wrong to price them as though they were.
+      </p>
+      <p class="pricing__note">
+        Tell us roughly how big your church is and we will work out something fair.
+      </p>
+      <div class="pricing__actions">
+        <a class="btn btn--wa btn--lg" href="<?= whatsapp_link($whatsappNumber) ?>" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15s-.77.96-.94 1.16c-.17.2-.35.22-.64.08-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.6.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.21-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37s-1.04 1.02-1.04 2.48 1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.76-.72 2-1.41.25-.7.25-1.29.18-1.42-.07-.13-.27-.2-.57-.35M12.05 21.8h-.02a9.8 9.8 0 0 1-4.99-1.37l-.36-.21-3.71.97 1-3.62-.24-.37a9.79 9.79 0 0 1-1.5-5.22c0-5.41 4.41-9.81 9.83-9.81a9.75 9.75 0 0 1 6.94 2.88 9.72 9.72 0 0 1 2.87 6.94c0 5.41-4.41 9.81-9.82 9.81m8.36-18.17A11.7 11.7 0 0 0 12.05 0C5.55 0 .26 5.29.26 11.79c0 2.08.54 4.11 1.58 5.9L.16 24l6.45-1.69a11.75 11.75 0 0 0 5.44 1.34h.01c6.5 0 11.79-5.29 11.79-11.79 0-3.15-1.23-6.11-3.45-8.34"/></svg>
+          Chat on WhatsApp
+        </a>
+        <a class="btn btn--ghost btn--lg" href="<?= mail_link($contactEmail, 'Pricing enquiry') ?>">
+          <?= icon('mail') ?>
+          Email us
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <?php require __DIR__ . '/resources/partials/cta.php'; ?>
 
 </main>
 
 <?php require __DIR__ . '/resources/partials/footer.php'; ?>
+
+<a class="wa-float" href="<?= whatsapp_link($whatsappNumber) ?>" target="_blank" rel="noopener noreferrer"
+   aria-label="Chat with us on WhatsApp">
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15s-.77.96-.94 1.16c-.17.2-.35.22-.64.08-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.6.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.21-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37s-1.04 1.02-1.04 2.48 1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.76-.72 2-1.41.25-.7.25-1.29.18-1.42-.07-.13-.27-.2-.57-.35M12.05 21.8h-.02a9.8 9.8 0 0 1-4.99-1.37l-.36-.21-3.71.97 1-3.62-.24-.37a9.79 9.79 0 0 1-1.5-5.22c0-5.41 4.41-9.81 9.83-9.81a9.75 9.75 0 0 1 6.94 2.88 9.72 9.72 0 0 1 2.87 6.94c0 5.41-4.41 9.81-9.82 9.81m8.36-18.17A11.7 11.7 0 0 0 12.05 0C5.55 0 .26 5.29.26 11.79c0 2.08.54 4.11 1.58 5.9L.16 24l6.45-1.69a11.75 11.75 0 0 0 5.44 1.34h.01c6.5 0 11.79-5.29 11.79-11.79 0-3.15-1.23-6.11-3.45-8.34"/></svg>
+  <span class="wa-float__tip">Chat with us</span>
+</a>
 
 <script src="resources/js/main.js"></script>
 </body>

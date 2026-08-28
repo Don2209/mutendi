@@ -55,7 +55,7 @@ if (!function_exists('main_is_active')) {
     /**
      * Matches a menu url against the page being viewed. Compares the file and,
      * when the url names a folder, the folder too — so members/all.php does
-     * not light up while reports/all.php is open.
+     * not light up while events/all.php is open.
      */
     function main_is_active(string $url, string $page, string $dir): bool
     {
